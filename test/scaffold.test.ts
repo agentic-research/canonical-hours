@@ -4,10 +4,10 @@ import { readFileSync, existsSync } from "node:fs";
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 
 describe("scaffold", () => {
-  it("uses pnpm@10.30.3, ESM, node >= 20", () => {
+  it("uses pnpm@10.30.3, ESM, node >= 22", () => {
     expect(pkg.packageManager).toBe("pnpm@10.30.3");
     expect(pkg.type).toBe("module");
-    expect(pkg.engines.node).toBe(">=20");
+    expect(pkg.engines.node).toBe(">=22");
   });
 
   it("depends on eve, zod, @ai-sdk/anthropic, and the MCP SDK", () => {
