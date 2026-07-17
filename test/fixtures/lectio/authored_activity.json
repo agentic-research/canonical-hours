@@ -1,0 +1,35 @@
+{
+  "since_nanos_used": 1784016000000000000,
+  "prs_with_activity": 1,
+  "total_new_items": 2,
+  "prs": [
+    {
+      "uri": "gh://jamestexas/agents/pr/42",
+      "repo": "jamestexas/agents",
+      "number": 42,
+      "title": "feat: add pr-board skill",
+      "state": "Open",
+      "merged": "false",
+      "new_items": [
+        {
+          "uri": "gh://jamestexas/agents/pr/42/review/1001",
+          "kind": "github/review",
+          "author": "mark",
+          "path": null,
+          "preview": "Please split this function.",
+          "observed_at_nanos": 1784210400000000000
+        },
+        {
+          "uri": "gh://jamestexas/agents/pr/42/comment/2002",
+          "kind": "github/review_comment",
+          "author": "mark",
+          "path": "src/board.ts",
+          "preview": "nit: rename this",
+          "observed_at_nanos": 1784214000000000000
+        }
+      ]
+    }
+  ],
+  "authored_commits": [],
+  "authored_commit_count": 0
+}
