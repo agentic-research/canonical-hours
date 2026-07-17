@@ -177,10 +177,16 @@ export class GithubSource implements Source {
     };
     const observations: Observation[] = [];
     for (const r of rec.reviews) {
+      // PENDING reviews (submitted_at === null) are drafts GitHub only shows
+      // to the reviewer themselves — not real activity from the PR author's
+      // perspective yet, and ObservationSchema.at requires a non-empty
+      // string, so there's no valid timestamp to emit anyway. Skip rather
+      // than fabricate one.
+      if (r.submitted_at === null) continue;
       const isOwn = r.user.login === rec.viewer;
       observations.push({
         artifact_uri: artifact.uri,
-        at: r.submitted_at ?? "",
+        at: r.submitted_at,
         author: r.user.login,
         type: isOwn ? "own_reply" : (REVIEW_TYPE[r.state] ?? "review"),
         payload: { preview: (r.body ?? "").slice(0, 200), url: r.html_url ?? "" },

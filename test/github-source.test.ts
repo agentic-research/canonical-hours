@@ -87,4 +87,30 @@ describe("GithubSource", () => {
     const source = new GithubSource("t", fakeFetch(routes));
     expect(() => source.mapToLifecycleEvent({ nope: true })).toThrow();
   });
+
+  it("skips PENDING reviews (submitted_at: null) rather than emitting an invalid observation", () => {
+    const source = new GithubSource("t", fakeFetch(routes));
+    const rec = {
+      pr: {
+        number: 42,
+        title: "feat: add pr-board skill",
+        html_url: "https://github.com/jamestexas/agents/pull/42",
+        repository: "jamestexas/agents",
+        state: "open",
+        merged_at: null,
+        closed_at: null,
+      },
+      reviews: fx("reviews_pending"),
+      comments: [],
+      backstop: false,
+      viewer: "jamestexas",
+    };
+    const event = source.mapToLifecycleEvent(rec);
+    // Only the submitted CHANGES_REQUESTED review produces an observation;
+    // the PENDING review (submitted_at: null) is skipped entirely.
+    expect(event.observations).toHaveLength(1);
+    const verdict = event.observations[0];
+    expect(verdict.type).toBe("review_changes_requested");
+    expect(verdict.at).toBe("2026-07-16T14:00:00Z");
+  });
 });
