@@ -4,36 +4,35 @@ import {
   Classification,
   FetchWindow,
   LifecycleEvent,
-  LifecycleStateSchema,
   Observation,
   Source,
   canonicalPrUri,
 } from "./source";
 
-/** One raw memory_authored_activity record. Loose at the edges; strict on what we read. */
-export const LectioActivityRecordSchema = z.looseObject({
-  artifact: z.looseObject({
-    uri: z.string(),
-    kind: z.string(),
-    metadata: z.looseObject({
-      repo: z.string(), // "owner/repo"
-      number: z.number(),
-      title: z.string(),
-      url: z.string(),
-    }),
-  }),
-  observations: z.array(
+/**
+ * One raw memory_authored_activity `prs[]` entry. Shape confirmed against
+ * lectio's own source (not docs) — see docs/lectio-api-notes.md for the
+ * full citation trail. Loose at the edges; strict on what we read.
+ */
+export const LectioPrRecordSchema = z.looseObject({
+  uri: z.string(), // "gh://owner/repo/pr/N"
+  repo: z.string().nullable(), // "owner/repo", or null if unparseable
+  number: z.number().nullable(),
+  title: z.string().nullable(),
+  state: z.string().nullable(), // PascalCase Debug format, e.g. "Open" | "Closed"
+  merged: z.string().nullable(), // stringly-typed "true" | "false", not a real boolean
+  new_items: z.array(
     z.looseObject({
-      observed_at: z.string(),
-      author: z.string(),
-      kind: z.string(),
-      content: z.string().optional(),
-      uri: z.string().optional(),
+      uri: z.string(),
+      kind: z.string(), // "github/review" | "github/review_comment" — never a verdict
+      author: z.string().nullable(),
+      path: z.string().nullable(),
+      preview: z.string().nullable(),
+      observed_at_nanos: z.number(),
     }),
   ),
-  state_hint: z.string().optional(),
 });
-export type LectioActivityRecord = z.infer<typeof LectioActivityRecordSchema>;
+export type LectioPrRecord = z.infer<typeof LectioPrRecordSchema>;
 
 export type LectioCall = (tool: string, args: Record<string, unknown>) => Promise<unknown>;
 
@@ -66,83 +65,99 @@ export function createMcpLectioCall(url: string, token: string): LectioCall {
   };
 }
 
-const HARD_KINDS = new Set([
-  "review",
-  "review_approved",
-  "review_changes_requested",
-  "review_commented",
-  "changes_requested",
-  "approved",
-  "comment",
-  "merge",
-  "close",
-  "open",
-]);
-
-/** hard = provider ground truth observed through lectio; derived/* and unknowns = soft (soft only enriches). */
-export function classifyLectioKind(kind: string): Classification {
-  if (kind.startsWith("derived/")) return "soft";
-  return HARD_KINDS.has(kind) ? "hard" : "soft";
+/**
+ * lectio is the soft/enrichment source; GitHub is the hard-verdict source
+ * (design doc: "Review verdicts and merge/close events classified `hard`"
+ * lives in sources/github.ts, not here). memory_authored_activity's
+ * `new_items[].kind` is only ever "github/review" or "github/review_comment"
+ * — lectio's gh adapter *does* capture a review's verdict internally
+ * (gh.rs:394, metadata.state), but authored_activity's projection never
+ * surfaces it (authored.rs:223-229). There is no kind this adapter could
+ * ever classify hard from this tool, so classification is a constant.
+ */
+export function classifyLectioKind(_kind: string): Classification {
+  return "soft";
 }
 
-// Finalized against recorded fixtures in Step 5 — extend, don't delete.
-const KIND_ALIASES: Record<string, string> = {
-  changes_requested: "review_changes_requested",
-  approved: "review_approved",
-  "review/changes_requested": "review_changes_requested",
-  "review/approved": "review_approved",
+// lectio's only two observed kinds from memory_authored_activity, mapped to
+// the local Source protocol's vocabulary. No verdict-level aliasing here —
+// lectio cannot distinguish approved/changes_requested/commented (see above).
+const KIND_MAP: Record<string, string> = {
+  "github/review": "review",
+  "github/review_comment": "review_comment",
 };
 
 export function normalizeLectioKind(kind: string): string {
-  return KIND_ALIASES[kind] ?? kind;
+  return KIND_MAP[kind] ?? kind;
+}
+
+function nanosToIso(nanos: number): string {
+  return new Date(Math.floor(nanos / 1_000_000)).toISOString();
 }
 
 export class LectioSource implements Source {
   name = "lectio";
-  schema = LectioActivityRecordSchema;
+  schema = LectioPrRecordSchema;
 
   constructor(private call: LectioCall) {}
 
   async fetch(window: FetchWindow): Promise<unknown[]> {
-    const result = await this.call("memory_authored_activity", {
-      since: window.since.toISOString(),
-      until: window.until.toISOString(),
-    });
-    if (Array.isArray(result)) return result;
-    const records = (result as { records?: unknown[] }).records;
-    return Array.isArray(records) ? records : [];
+    // memory_authored_activity takes since_nanos only — there is no `until`
+    // parameter; the window's end is implicitly "now" server-side
+    // (authored.rs:92-107). since_nanos as a JS number loses sub-microsecond
+    // precision above 2^53 ns (~104 days since epoch); harmless for a
+    // window-start filter at this magnitude.
+    const sinceNanos = Math.floor(window.since.getTime() * 1_000_000);
+    const result = await this.call("memory_authored_activity", { since_nanos: sinceNanos });
+    const prs = (result as { prs?: unknown[] }).prs;
+    return Array.isArray(prs) ? prs : [];
   }
 
   mapToLifecycleEvent(raw: unknown): LifecycleEvent {
-    const rec = LectioActivityRecordSchema.parse(raw);
-    const [owner, repo] = rec.artifact.metadata.repo.split("/");
+    const rec = LectioPrRecordSchema.parse(raw);
+    if (!rec.repo || rec.number === null) {
+      throw new Error(`lectio PR record missing repo/number for ${rec.uri}`);
+    }
+    const [owner, repoName] = rec.repo.split("/");
     const artifact: Artifact = {
-      uri: canonicalPrUri(owner, repo, rec.artifact.metadata.number),
+      uri: canonicalPrUri(owner, repoName, rec.number),
       kind: "pr",
-      repo: rec.artifact.metadata.repo.toLowerCase(),
-      number: rec.artifact.metadata.number,
-      title: rec.artifact.metadata.title,
-      url: rec.artifact.metadata.url,
+      repo: rec.repo.toLowerCase(),
+      number: rec.number,
+      title: rec.title ?? "",
+      // lectio's gh adapter never stores a PR URL (gh.rs:753-761) — synthesize it.
+      url: `https://github.com/${rec.repo}/pull/${rec.number}`,
     };
-    const observations: Observation[] = rec.observations.map((o) => ({
+    const observations: Observation[] = rec.new_items.map((item) => ({
       artifact_uri: artifact.uri,
-      at: o.observed_at,
-      author: o.author,
-      type: normalizeLectioKind(o.kind),
-      payload: { preview: o.content ?? "", lectio_uri: o.uri ?? "" },
-      classification: classifyLectioKind(o.kind),
+      at: nanosToIso(item.observed_at_nanos),
+      author: item.author ?? "unknown",
+      type: normalizeLectioKind(item.kind),
+      payload: {
+        preview: item.preview ?? "",
+        lectio_uri: item.uri,
+        path: item.path ?? "",
+      },
+      classification: classifyLectioKind(item.kind),
     }));
-    const hint = LifecycleStateSchema.safeParse(rec.state_hint);
-    return { artifact, observations, state_hint: hint.success ? hint.data : undefined };
+    return {
+      artifact,
+      observations,
+      // lectio never claims needs_you or resolved on its own — those are
+      // hard-source determinations (Task 5's fold/merge priority policy).
+      // "active" is the safe ceiling: something happened, no verdict implied.
+      state_hint: "active",
+    };
   }
 
   async freshness(): Promise<string | null> {
     const result = await this.call("memory_list_sources", {});
-    const entries = Array.isArray(result) ? result : ((result as { sources?: unknown[] }).sources ?? []);
+    const sources =
+      (result as { sources?: Array<{ last_observed_at_iso?: string | null }> }).sources ?? [];
     let latest: string | null = null;
-    for (const s of entries as Array<{ last_advanced_at?: string }>) {
-      if (s.last_advanced_at && (!latest || s.last_advanced_at > latest)) {
-        latest = s.last_advanced_at;
+    for (const s of sources) {
+      if (s.last_observed_at_iso && (!latest || s.last_observed_at_iso > latest)) {
+        latest = s.last_observed_at_iso;
       }
     }
     return latest;
