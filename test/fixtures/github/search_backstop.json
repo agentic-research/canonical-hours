@@ -1,0 +1,13 @@
+{
+  "items": [
+    {
+      "number": 7,
+      "title": "fix: stale review from last week",
+      "html_url": "https://github.com/jamestexas/mache/pull/7",
+      "repository_url": "https://api.github.com/repos/jamestexas/mache",
+      "state": "open",
+      "closed_at": null,
+      "pull_request": { "merged_at": null }
+    }
+  ]
+}
