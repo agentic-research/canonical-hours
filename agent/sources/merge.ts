@@ -42,7 +42,9 @@ export function foldState(observations: Observation[], hints: LifecycleState[]):
   const lastOwn = [...sorted].reverse().find((o) => o.type === "own_reply");
   const unanswered =
     lastOther !== undefined && (lastOwn === undefined || lastOther.at > lastOwn.at);
-  if (unanswered && lastOther !== lastVerdict) return "needs_you";
+  // Check value equality (not reference identity) to survive JSON round-trips in Task 9
+  const isSameObservation = lastOther && lastVerdict && lastOther.at === lastVerdict.at && lastOther.type === lastVerdict.type;
+  if (unanswered && !isSameObservation) return "needs_you";
   if (hints.includes("needs_you")) return "needs_you";
 
   // 4. Approved with nothing outstanding.

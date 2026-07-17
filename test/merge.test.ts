@@ -58,6 +58,37 @@ describe("foldState", () => {
   it("no observations, no hints → opened", () => {
     expect(foldState([], [])).toBe("opened");
   });
+
+  it("clone safety: bare approval survives JSON round-trip", () => {
+    // Regression test for reference-identity bug (Task 5 finding)
+    // Verify that foldState uses value equality, not reference identity,
+    // so the fold result is unchanged even after JSON serialization
+    const o = [
+      obs({ type: "review_approved", at: "2026-07-16T14:00:00Z" }),
+    ];
+    const originalResult = foldState(o, []);
+
+    // Clone via JSON round-trip (simulates Task 9 cross-queue/cache boundary)
+    const clonedO = JSON.parse(JSON.stringify(o)) as Observation[];
+    const clonedResult = foldState(clonedO, []);
+
+    expect(clonedResult).toBe(originalResult);
+    expect(clonedResult).toBe("resolved");
+  });
+
+  it("clone safety: unanswered comment is needs_you even after cloning", () => {
+    // Verify observation-key comparison survives object cloning
+    const o = [
+      obs({ type: "comment", at: "2026-07-16T12:00:00Z" }),
+    ];
+    const originalResult = foldState(o, []);
+
+    const clonedO = JSON.parse(JSON.stringify(o)) as Observation[];
+    const clonedResult = foldState(clonedO, []);
+
+    expect(clonedResult).toBe(originalResult);
+    expect(clonedResult).toBe("needs_you");
+  });
 });
 
 describe("mergeEvents", () => {
