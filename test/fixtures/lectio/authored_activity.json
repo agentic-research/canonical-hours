@@ -1,0 +1,30 @@
+[
+  {
+    "artifact": {
+      "uri": "lectio:gh/pr/jamestexas/agents/42",
+      "kind": "gh/pr",
+      "metadata": {
+        "repo": "jamestexas/agents",
+        "number": 42,
+        "title": "feat: add pr-board skill",
+        "url": "https://github.com/jamestexas/agents/pull/42"
+      }
+    },
+    "observations": [
+      {
+        "observed_at": "2026-07-16T14:00:00Z",
+        "author": "mark",
+        "kind": "review_changes_requested",
+        "content": "Please split this function.",
+        "uri": "lectio:obs/1"
+      },
+      {
+        "observed_at": "2026-07-16T15:00:00Z",
+        "author": "lectio",
+        "kind": "derived/thread_summary",
+        "content": "Mark wants a refactor.",
+        "uri": "lectio:obs/2"
+      }
+    ]
+  }
+]
