@@ -13,7 +13,12 @@ export interface MergedArtifact {
 
 /** Activity by others that can leave something outstanding on you. */
 const OTHER_ACTIVITY = new Set([
-  "review", "review_approved", "review_changes_requested", "review_commented", "comment",
+  "review",
+  "review_approved",
+  "review_changes_requested",
+  "review_commented",
+  "review_comment", // lectio's normalized github/review_comment kind (agent/sources/lectio.ts KIND_MAP)
+  "comment",
 ]);
 
 /**

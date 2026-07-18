@@ -59,6 +59,17 @@ describe("foldState", () => {
     expect(foldState([], [])).toBe("opened");
   });
 
+  it("lectio-only standalone review_comment (no accompanying review row) → needs_you, not active", () => {
+    // Regression test: agent/sources/lectio.ts normalizes github/review_comment
+    // to "review_comment", but merge.ts's OTHER_ACTIVITY set didn't originally
+    // include that string (only GitHub's own "review_commented" token and
+    // "comment"). A PR whose only lectio-visible signal was an inline review
+    // comment would fold to "active" instead of "needs_you" — under-flagging
+    // the unanswered-comment case this whole system exists to catch.
+    const reviewComment = obs({ type: "review_comment", classification: "soft", at: "2026-07-16T12:00:00Z" });
+    expect(foldState([reviewComment], [])).toBe("needs_you");
+  });
+
   it("clone safety: bare approval survives JSON round-trip", () => {
     // Regression test for reference-identity bug (Task 5 finding)
     // Verify that foldState uses value equality, not reference identity,
