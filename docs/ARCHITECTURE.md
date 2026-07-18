@@ -81,6 +81,77 @@ the `/board` vs `/board.json` route-naming constraint), see
 [eve-api-notes.md](eve-api-notes.md) — those are implementation
 citations, not repeated here.
 
+## The pluggable Source protocol
+
+Before the tick, before the merge logic, there's a design decision that
+shapes everything downstream: lectio and GitHub aren't hardcoded into
+the pipeline, they're two implementations of one small interface
+(`agent/sources/source.ts`). This was deliberate — the explicit ask
+going in was "make it pluggable," scoped narrowly: a real interface
+other adapters could implement, but *local to this repo*, not a
+cross-project standard other repos are meant to adopt (that's a
+possible future lectio enhancement, not this repo's job — see
+`docs/lectio-api-notes.md`).
+
+```ts
+interface Source {
+  name: string;
+  schema: z.ZodType;                          // one raw provider record
+  fetch(window: FetchWindow): Promise<unknown[]>;
+  mapToLifecycleEvent(raw: unknown): LifecycleEvent;
+  freshness(): Promise<string | null>;
+}
+```
+
+Three things make this work as a real abstraction rather than a
+thin wrapper around two special cases:
+
+- **The shared vocabulary lives above the adapters, not inside them.**
+  `Artifact` (a canonical URI + kind — `pr:owner/repo#123`), `Observation`
+  (a timestamped fact with a `classification` of `hard` or `soft`), and
+  the four-state `LifecycleState` enum (`opened` / `active` / `needs_you`
+  / `resolved`) are all defined once, in `source.ts`, and every adapter
+  normalizes into that shape. Nothing downstream of `mapToLifecycleEvent`
+  ever sees a lectio- or GitHub-specific field.
+- **Priority policy is a merge-time concern, not an adapter concern.**
+  "GitHub is the sole hard source, lectio fills enrichment, hard beats
+  soft on conflict" is a rule `agent/sources/merge.ts` applies across
+  *whichever* sources are registered — it's not encoded in either
+  adapter. `sources/lectio.ts` and `sources/github.ts` don't know about
+  each other or their relative priority; they just each answer "what do
+  you see, and how sure are you." That's what makes the earlier claim —
+  "a third source later is a registry entry, not a rewrite" — actually
+  true rather than aspirational: a hypothetical third adapter (Linear,
+  say) would implement the same three methods, get added to the
+  `priority` list `agent/lib/tick-entry.ts` passes into `runTick`, and
+  everything from `mergeEvents` onward would handle it with zero
+  changes.
+- **Each adapter owns its own failure boundary.** `schema` is what makes
+  "fail loudly, not silently" enforceable per-source: a provider
+  response that doesn't parse throws inside that adapter's own
+  `fetch`/`mapToLifecycleEvent`, gets caught by `runTick`'s per-source
+  `try/catch`, and becomes one `degradations` entry — never a crash,
+  never silent corruption of the merged view.
+
+**Adding a new source** means: write a module implementing `Source`
+(a zod schema for the provider's raw shape, a `fetch` that returns raw
+records for a window, a `mapToLifecycleEvent` that normalizes into the
+shared vocabulary, a `freshness` check), register it in the `priority`
+array where lectio/GitHub are registered today, and — this is the part
+that proves the abstraction — touch nothing in `merge.ts`, `board.ts`,
+or `tick.ts`. If adding a source ever requires editing those files, the
+abstraction has leaked and that's worth noticing, not working around.
+
+The two live adapters are asymmetric on purpose, which is itself worth
+understanding as a design choice rather than an inconsistency: lectio
+(`sources/lectio.ts`) is soft-only — discovered mid-build that its
+`memory_authored_activity` tool has no way to expose a review's verdict,
+only that something happened (see `docs/lectio-api-notes.md`) — while
+GitHub (`sources/github.ts`) is the sole producer of `hard`
+classifications. A future adapter isn't obligated to pick a side; the
+protocol doesn't care whether a source ever emits `hard` observations,
+only that it's honest about which it's asserting.
+
 ## Data flow: one tick
 
 1. **Fetch.** `runTick` calls `fetch(window)` on each configured
