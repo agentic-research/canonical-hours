@@ -32,7 +32,7 @@ export function agentPrompt(input: AgentTickInput): string {
  * `invokeAgent(input: AgentTickInput): Promise<void>` free function shape
  * cannot be wired to the real eve invocation API. `createInvokeAgent` below
  * is a factory that closes over those handler-scoped values instead; see
- * docs/task-9-report.md for the full resolution against the brief's draft.
+ * docs/eve-api-notes.md fact 2 for the full resolution against the brief's draft.
  */
 export interface InvokeAgentRuntime {
   receive: ScheduleHandlerArgs["receive"];

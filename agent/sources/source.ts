@@ -32,7 +32,8 @@ export const ObservationSchema = z.object({
   author: z.string(),
   // Canonical vocabulary consumed by foldState (Task 5):
   // review_approved | review_changes_requested | review_commented | review |
-  // comment | own_reply | merge | close | enrichment | (source-specific passthrough)
+  // review_comment | comment | own_reply | merge | close | enrichment |
+  // (source-specific passthrough)
   type: z.string(),
   payload: z.record(z.string(), z.unknown()),
   classification: ClassificationSchema,
