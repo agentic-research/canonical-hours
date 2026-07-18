@@ -301,5 +301,34 @@ output):
   yet. Everything above has only ever been exercised against a local
   `eve dev` process with manually triggered ticks.
 
-No beads are currently open against this repo tracking further
-follow-up; the two items above are the known gaps as of this writing.
+Tracked as beads (`rsry_bead_search` against this repo, not visible via
+local `bd list` — see note below):
+
+- `canonical-hours-3169e1` — the material-path filesystem question above.
+- `canonical-hours-25ff14` — the in-process-only overlap guard above.
+- `canonical-hours-f325c3` — a `merge.ts` regression test that doesn't
+  actually exercise the bug it claims to guard against (currently
+  unreachable via the real pipeline, so non-blocking).
+- `canonical-hours-dc68b5` — a recurring false-positive IDE diagnostic
+  ("Cannot find module") on freshly-created files during development;
+  confirmed not a real bug, tracked so it doesn't get re-investigated.
+
+(Aside for contributors: `bd list` in this repo currently reports zero
+issues even though the beads above exist and are correctly scoped —
+a known desync between local `bd` CLI and beads written via the `rsry`
+MCP tooling. Use `rsry_bead_search`/`rsry_list_beads` against this repo,
+not `bd`, until that's sorted out.)
+
+## Future tooling: structural smell gate
+
+This repo has no CI yet (see above), which is also the natural point to
+wire in a structural-quality gate before one gets added ad hoc. The
+sibling `agentic-research/mache` project ships `find-smells` — SQL rules
+over a parsed-code database, a ratchet/baseline model (grandfather
+existing debt, gate only on new debt), and a composite GitHub Action
+that mache itself dogfoods. It's not TypeScript-specific; worth wiring
+in alongside whatever CI workflow eventually lands here, rather than
+retrofitting it after debt accumulates. See
+`agentic-research/mache`'s `examples/smell-rules/README.md` for the
+mechanics (rule format, baseline bootstrapping, the CI action) before
+adding it.
