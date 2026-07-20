@@ -1,0 +1,195 @@
+{
+  "version": 1,
+  "counts": [
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/connections/lectio.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/lib/board.ts",
+      "count": 5
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/lib/config.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/lib/invoke-agent.ts",
+      "count": 2
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/lib/tick-entry.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/lib/tick.ts",
+      "count": 6
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/sandbox.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/sources/github.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/sources/lectio.ts",
+      "count": 4
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/sources/merge.ts",
+      "count": 3
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/sources/source.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "test/github-source.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "test/tick.test.ts",
+      "count": 3
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "test/weather-source.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/lib/board.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/lib/config.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/lib/invoke-agent.ts",
+      "count": 2
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/lib/tick.ts",
+      "count": 2
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/schedules/pr-board.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/sources/github.ts",
+      "count": 4
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/sources/lectio.ts",
+      "count": 4
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/sources/merge.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/sources/snapshot.ts",
+      "count": 2
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/sources/source.ts",
+      "count": 7
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/sources/weather.ts",
+      "count": 2
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "test/lectio-source.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "test/snapshot.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "agent/sources/github.ts",
+      "count": 4
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "agent/sources/lectio.ts",
+      "count": 4
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "agent/sources/weather.ts",
+      "count": 3
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "test/github-source.test.ts",
+      "count": 2
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "test/merge.test.ts",
+      "count": 2
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "test/snapshot.test.ts",
+      "count": 2
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "test/tick.test.ts",
+      "count": 14
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "test/weather-source.test.ts",
+      "count": 2
+    },
+    {
+      "rule_id": "god_file",
+      "source_id": "agent/sources/github.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "god_file",
+      "source_id": "agent/sources/lectio.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "long_function",
+      "source_id": "agent/lib/tick.ts",
+      "count": 1
+    }
+  ]
+}
