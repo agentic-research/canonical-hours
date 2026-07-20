@@ -8,3 +8,6 @@ board/
 .dolt/
 *.db
 .beads-credential-key
+
+# mache find-smells local index (regenerate with `mache build . smells.db`)
+smells.db

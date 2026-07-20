@@ -478,7 +478,10 @@ over a parsed-code database, a ratchet/baseline model (grandfather
 existing debt, gate only on new debt), and a composite GitHub Action
 that mache itself dogfoods. It's not TypeScript-specific; worth wiring
 in alongside whatever CI workflow eventually lands here, rather than
-retrofitting it after debt accumulates. See
-`agentic-research/mache`'s `examples/smell-rules/README.md` for the
-mechanics (rule format, baseline bootstrapping, the CI action) before
-adding it.
+retrofitting it after debt accumulates.
+
+The ratchet baseline is now bootstrapped and committed
+(`docs/smell-baseline.json`); [smell-gate.md](smell-gate.md) records
+how it was generated and how to wire the composite action into a
+future CI workflow. See `agentic-research/mache`'s
+`examples/smell-rules/README.md` for rule format and action mechanics.
