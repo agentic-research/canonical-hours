@@ -1,0 +1,5 @@
+{
+  "weather": [{ "description": "clear" }],
+  "main": { "temp": 72.1, "feels_like": 75.3, "humidity": 40 },
+  "dt": 1784387040
+}
