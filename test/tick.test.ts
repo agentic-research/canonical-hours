@@ -2,9 +2,10 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runTick, inQuietHours, _resetTickGuardForTests, TickDeps } from "../agent/lib/tick";
+import { runTick, inQuietHours, _resetTickGuardForTests, computeMaterialHash, TickDeps } from "../agent/lib/tick";
 import { readBoard, writeBoardAtomic, Board } from "../agent/lib/board";
 import { Source, LifecycleEvent, Observation } from "../agent/sources/source";
+import { MergedArtifact } from "../agent/sources/merge";
 
 const obs = (partial: Partial<Observation>): Observation => ({
   artifact_uri: "pr:o/r#1", at: "2026-07-16T12:00:00Z", author: "mark",
@@ -168,5 +169,70 @@ describe("runTick", () => {
     const d = await deps({ sources: [fakeSource("lectio", [])], quietHours: "22-07", quietTz: "UTC" });
     d.now = () => new Date("2026-07-17T23:30:00Z");
     expect(await runTick(d)).toBe("skipped_quiet");
+  });
+});
+
+const ma = (uri: string, state: MergedArtifact["state"], obsAts: string[]): MergedArtifact => ({
+  artifact: {
+    uri, kind: "pr", repo: "o/r", number: 1, title: "t",
+    url: "https://github.com/o/r/pull/1",
+  },
+  observations: obsAts.map((at) => obs({ artifact_uri: uri, at })),
+  state,
+});
+
+describe("computeMaterialHash", () => {
+  const a = ma("pr:o/r#1", "needs_you", ["2026-07-17T06:00:00Z"]);
+  const b = ma("pr:o/r#2", "active", ["2026-07-17T05:00:00Z"]);
+
+  it("is deterministic and order-insensitive", () => {
+    expect(computeMaterialHash([a, b])).toBe(computeMaterialHash([b, a]));
+    expect(computeMaterialHash([a, b])).toBe(computeMaterialHash([a, b]));
+  });
+
+  it("changes on a state flip (active ↔ needs_you)", () => {
+    const flipped = { ...a, state: "active" as const };
+    expect(computeMaterialHash([flipped, b])).not.toBe(computeMaterialHash([a, b]));
+  });
+
+  it("changes when the latest observation advances", () => {
+    const advanced = ma("pr:o/r#1", "needs_you", ["2026-07-17T07:30:00Z"]);
+    expect(computeMaterialHash([advanced, b])).not.toBe(computeMaterialHash([a, b]));
+  });
+
+  it("changes when an artifact is added or removed", () => {
+    expect(computeMaterialHash([a])).not.toBe(computeMaterialHash([a, b]));
+    expect(computeMaterialHash([b])).not.toBe(computeMaterialHash([a, b]));
+  });
+
+  it("empty-set hash is stable across calls", () => {
+    expect(computeMaterialHash([])).toBe(computeMaterialHash([]));
+  });
+
+  // Falsification target: the tick is fully stateless (§Task 6) — every tick
+  // re-fetches the whole window from scratch, so a new observation is not
+  // guaranteed to have a timestamp later than the latest one already seen
+  // (provider/ingestion clock skew, a backfilled comment, two events in the
+  // same second). A hash keyed on only the max timestamp would silently miss
+  // this — material_unchanged would fire and a genuinely new comment would
+  // never get summarized. This test constructs exactly that case.
+  it("changes when a new observation arrives with a timestamp that does not advance the max (out-of-order arrival)", () => {
+    const before = ma("pr:o/r#1", "needs_you", ["2026-07-17T06:00:00Z"]);
+    // Second observation is EARLIER than the one already seen — the max
+    // timestamp is unchanged, but a real new comment has arrived.
+    const afterBackfill = ma("pr:o/r#1", "needs_you", [
+      "2026-07-17T06:00:00Z",
+      "2026-07-17T05:55:00Z",
+    ]);
+    expect(computeMaterialHash([afterBackfill])).not.toBe(computeMaterialHash([before]));
+  });
+
+  it("changes when observation count changes even at an identical latest timestamp (duplicate/simultaneous events)", () => {
+    const one = ma("pr:o/r#1", "needs_you", ["2026-07-17T06:00:00Z"]);
+    const two = ma("pr:o/r#1", "needs_you", [
+      "2026-07-17T06:00:00Z",
+      "2026-07-17T06:00:00Z",
+    ]);
+    expect(computeMaterialHash([two])).not.toBe(computeMaterialHash([one]));
   });
 });
