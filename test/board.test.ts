@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtemp, readdir, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -122,5 +122,54 @@ describe("writeBoardAtomic / readBoard", () => {
       expect(["v1", "v2"]).toContain(tag);
     }
     expect(seenTags.size).toBeGreaterThan(0);
+  });
+});
+
+const snapshot = {
+  kind: "weather",
+  label: "Weather — Austin, TX",
+  value: "72°F, clear",
+  detail: "feels like 75°F, humidity 40%",
+  as_of: "2026-07-18T15:04:00Z",
+};
+
+describe("board schema: snapshots + material_hash", () => {
+  it("parses an old-format board.json with neither field (migration guarantee)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "board-old-"));
+    // `board` (top of this file) predates both fields — write it raw, bypassing writeBoardAtomic.
+    await writeFile(join(dir, "board.json"), JSON.stringify(board), "utf8");
+    const back = await readBoard(dir);
+    expect(back).not.toBeNull();
+    expect(back?.snapshots).toBeUndefined();
+    expect(back?.material_hash).toBeUndefined();
+  });
+
+  it("renderBoardMd renders the Snapshots section after Freshness, in the specified format", () => {
+    const md = renderBoardMd({ ...board, snapshots: [snapshot] });
+    expect(md).toContain("## Snapshots");
+    expect(md).toContain(
+      "- Weather — Austin, TX: 72°F, clear (feels like 75°F, humidity 40%) — as of 2026-07-18T15:04:00Z",
+    );
+    expect(md.indexOf("## Freshness")).toBeLessThan(md.indexOf("## Snapshots"));
+    expect(md.indexOf("## Snapshots")).toBeLessThan(md.indexOf("## [needs_you]"));
+  });
+
+  it("omits the detail parenthetical when detail is absent", () => {
+    const { detail: _drop, ...noDetail } = snapshot;
+    const md = renderBoardMd({ ...board, snapshots: [noDetail] });
+    expect(md).toContain("- Weather — Austin, TX: 72°F, clear — as of 2026-07-18T15:04:00Z");
+  });
+
+  it("renders no Snapshots section when snapshots is absent or empty", () => {
+    expect(renderBoardMd(board)).not.toContain("## Snapshots");
+    expect(renderBoardMd({ ...board, snapshots: [] })).not.toContain("## Snapshots");
+  });
+
+  it("writeBoardAtomic round-trips both new fields", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "board-snap-"));
+    await writeBoardAtomic({ ...board, snapshots: [snapshot], material_hash: "abc123" }, dir);
+    const back = await readBoard(dir);
+    expect(back?.snapshots).toEqual([snapshot]);
+    expect(back?.material_hash).toBe("abc123");
   });
 });
