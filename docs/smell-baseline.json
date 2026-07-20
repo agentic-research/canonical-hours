@@ -3,6 +3,11 @@
   "counts": [
     {
       "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/channels/mcp.ts",
+      "count": 3
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
       "source_id": "agent/connections/lectio.ts",
       "count": 1
     },
@@ -60,6 +65,11 @@
       "rule_id": "cyclomatic_complexity",
       "source_id": "test/github-source.test.ts",
       "count": 1
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "test/mcp-channel.test.ts",
+      "count": 7
     },
     {
       "rule_id": "cyclomatic_complexity",
@@ -155,6 +165,11 @@
       "rule_id": "duplicate_definitions",
       "source_id": "test/github-source.test.ts",
       "count": 2
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "test/mcp-channel.test.ts",
+      "count": 6
     },
     {
       "rule_id": "duplicate_definitions",

@@ -16,8 +16,7 @@ same question, but answered continuously instead of only when you ask.
 
 ```sh
 cp .env.example .env    # fill in LECTIO_URL/TOKEN, GITHUB_TOKEN, ANTHROPIC_API_KEY (+ optional WEATHER_API_KEY)
-pnpm install
-pnpm dev                # eve dev — runs the agent locally
+task dev                # eve dev — runs the agent locally (installs deps first)
 ```
 
 With `eve dev` running, fire a tick manually (the schedule's cron never
@@ -123,9 +122,18 @@ transport and tenancy details.
 
 ## Commands
 
+Local dev and CI (once this repo has a workflow) both run through
+[Taskfile.yml](Taskfile.yml) — the same convention as
+[cloister](../cloister), [rosary](../rosary), and
+[mache](../mache). Never invoke `pnpm`/`tsc`/`vitest` directly in a
+workflow; call the matching `task` target instead.
+
 ```sh
-pnpm dev         # eve dev — run the agent locally
-pnpm build       # eve build
-pnpm test        # vitest run
-pnpm typecheck   # tsc --noEmit
+task dev          # eve dev — run the agent locally
+task build        # eve build
+task test         # vitest run
+task typecheck    # tsc --noEmit
+task check        # typecheck + test — the fast inner-loop gate
+task smells       # structural smell gate, ratcheted against docs/smell-baseline.json
+task --list       # see everything, including deps/watch/smells:baseline
 ```

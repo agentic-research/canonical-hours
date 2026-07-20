@@ -1,0 +1,74 @@
+version: '3'
+
+# Golden path: local dev and (whenever a workflow is added) CI both use
+# these tasks. This repo has no CI workflow yet (see docs/ARCHITECTURE.md,
+# "What's verified, and what's not") — this Taskfile exists so that when
+# CI lands it wires straight into these same targets rather than
+# reinventing them in YAML, matching the convention in cloister/rosary/mache.
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  deps:
+    desc: Install dependencies from pnpm-lock.yaml (frozen)
+    cmds:
+      - pnpm install --frozen-lockfile
+    sources:
+      - package.json
+      - pnpm-lock.yaml
+    generates:
+      - node_modules/.modules.yaml
+
+  dev:
+    desc: Start the eve dev server (schedules never fire on cron in dev — trigger manually, see README)
+    deps: [deps]
+    cmds:
+      - pnpm exec eve dev
+
+  build:
+    desc: Build for deployment (eve build)
+    deps: [deps]
+    cmds:
+      - pnpm exec eve build
+
+  test:
+    desc: Run the test suite (vitest)
+    deps: [deps]
+    cmds:
+      - pnpm exec vitest run
+
+  test:watch:
+    desc: Watch mode
+    deps: [deps]
+    cmds:
+      - pnpm exec vitest
+
+  typecheck:
+    desc: TypeScript type check (no emit)
+    deps: [deps]
+    cmds:
+      - pnpm exec tsc --noEmit
+
+  smells:
+    desc: "Structural smell gate — fail only on findings beyond docs/smell-baseline.json (bootstrap; see docs/smell-gate.md). Requires the mache CLI."
+    cmds:
+      - mache build . smells.db
+      - mache find-smells --db smells.db --rule '*' --limit 100000 --baseline-root "$PWD" --baseline docs/smell-baseline.json
+
+  smells:baseline:
+    desc: "Regenerate docs/smell-baseline.json from the current scan. Deliberate re-grandfathering only (e.g. after an accepted refactor) — day-to-day use `task smells`."
+    cmds:
+      - mache build . smells.db
+      - mache find-smells --db smells.db --rule '*' --limit 100000 --baseline-root "$PWD" --write-baseline docs/smell-baseline.json
+
+  check:
+    desc: "Fast gate — typecheck + test. Run this in the inner dev loop, and (once a CI workflow exists) in CI."
+    deps: [typecheck, test]
+
+  ci:
+    desc: "The exact gate CI should run once a workflow is added. Currently identical to `check` — smells is opt-in until docs/smell-gate.md's CI wiring lands."
+    cmds:
+      - task: check
