@@ -1,8 +1,27 @@
 import { lectioEnv } from "../connections/lectio";
 import { GithubSource } from "../sources/github";
 import { LectioSource, createMcpLectioCall } from "../sources/lectio";
+import { SnapshotSource } from "../sources/snapshot";
+import { WeatherSource } from "../sources/weather";
+import { loadConfig } from "./config";
 import { runTick, TickResult } from "./tick";
 import { createInvokeAgent, InvokeAgentRuntime } from "./invoke-agent";
+
+// Module-load config, like pr-board.ts: a malformed canonical-hours.toml
+// fails the boot loudly rather than running at a cadence nobody chose.
+const config = loadConfig();
+
+// The snapshot registry, mirroring the activity `sources` array below:
+// a second snapshot source is one entry here, not a rewrite. No [weather]
+// table in the TOML → the source is simply not registered (no degradation).
+const snapshotSources: SnapshotSource[] = [];
+if (config.weather) {
+  snapshotSources.push(
+    // WEATHER_API_KEY is env-only (secret — same handling as GITHUB_TOKEN);
+    // empty key → fetch() throws → a visible `weather` degradation, never a crash.
+    new WeatherSource(process.env.WEATHER_API_KEY ?? "", config.weather.location),
+  );
+}
 
 /**
  * The scheduled tick, fully wired.
@@ -21,6 +40,7 @@ export async function prBoardTick(runtime: InvokeAgentRuntime): Promise<TickResu
       new GithubSource(process.env.GITHUB_TOKEN ?? ""),
     ],
     priority: ["lectio", "github"],
+    snapshotSources,
     invokeAgent: createInvokeAgent(runtime),
   });
   console.log(`[pr-board] tick result: ${result}`);
