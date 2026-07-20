@@ -1,0 +1,9 @@
+[schedule]
+# Tick cadence. Default (and this committed value): every 5 minutes.
+# The motivating case: a reviewer replies 5 minutes after you push;
+# a 4-hour cadence is twice a workday late. material_unchanged (tick.ts)
+# is what makes this affordable.
+cron = "*/5 * * * *"
+
+[weather]
+location = "Austin, TX"
