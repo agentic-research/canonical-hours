@@ -92,6 +92,12 @@ graph TB
 - **`agent/channels/board.ts`** — the read surface: `GET /board`
   (JSON) and `GET /board/md` (rendered markdown), both backed by
   `readBoard()`.
+- **`agent/channels/mcp.ts`** — the protocol-conformant surface: a
+  streamable-HTTP MCP endpoint at `POST /mcp` exposing `get_board`
+  (backed by the same `readBoard()`/`renderBoardMd()` as the REST
+  routes above) and `trigger_tick` (calls `prBoardTick()` directly, the
+  same entry point `agent/schedules/pr-board.ts` calls). See
+  [The MCP surface](#the-mcp-surface) below.
 
 For the eve-specific API facts behind these choices (schedule/channel
 shapes, the `receive()` blocking guarantee, sandbox backend imports,
@@ -258,6 +264,117 @@ snapshot source is a new `agent/sources/*.ts` module plus one entry in
    un-summarized events — the LLM's absence degrades the *quality* of
    the board, never its existence.
 
+## The MCP surface
+
+Everything above this point is reachable two ways: the REST-shaped
+routes in `agent/channels/board.ts`/`tick.ts` (curl, humans, anything
+that just wants JSON or markdown over plain HTTP), and, additively, a
+real [MCP](https://modelcontextprotocol.io) server at `agent/channels/mcp.ts`.
+The REST routes aren't going anywhere — the MCP surface exists because
+canonical-hours is meant to be the general home for scheduled,
+repeatable agent tasks, not a PR-board-specific tool, and that class of
+capability needs to be consumable by other *agent* infrastructure, not
+just by whoever's willing to `curl` and parse JSON by hand. The
+concrete driver is [cloister](../cloister) — a v8-isolate hypervisor
+that bundles a set of MCP servers behind one endpoint for its own
+agents to call — which only knows how to consume MCP, not arbitrary
+REST shapes.
+
+### Two tools, one guard
+
+```mermaid
+graph LR
+    CRON["cron<br/>(agent/schedules/pr-board.ts)"]
+    MCP["MCP trigger_tick<br/>(agent/channels/mcp.ts)"]
+    ENTRY["prBoardTick()"]
+    TICK["runTick()<br/>overlap guard: module-level running flag"]
+
+    CRON --> ENTRY
+    MCP --> ENTRY
+    ENTRY --> TICK
+```
+
+- **`get_board`** (read-only) — calls the same `readBoard()` /
+  `renderBoardMd()` the REST routes use. Returns the full board as
+  structured content (typed by the existing `BoardSchema`) plus the
+  rendered markdown as text, so a model-side MCP caller gets a
+  zero-parsing render without losing the structured shape a
+  programmatic caller needs. `board: null` (no tick has ever completed)
+  is a successful result, not an error — the MCP analog of
+  `board.ts`'s `404 {"error":"no board yet"}`.
+- **`trigger_tick`** (action) — calls `prBoardTick()` directly, the
+  identical entry point the cron schedule calls, and awaits the real
+  six-way `TickResult` (`skipped_overlap`, `skipped_quiet`, `all_clear`,
+  `material_unchanged`, `material`, `degraded_fallback`) rather than
+  firing-and-forgetting. This is a second *trigger* for the same tick
+  logic, not a separate code path — `agent/lib/tick.ts`, `board.ts`,
+  and the cron schedule are untouched.
+
+The load-bearing property that makes a second trigger safe with zero
+new concurrency code: the in-process overlap guard
+(`agent/lib/tick.ts`'s module-level `running` flag, see
+[What's verified](#whats-verified-and-whats-not)) is already
+trigger-source-agnostic — it doesn't know or care whether the caller
+was the cron schedule or an MCP client, only that at most one tick runs
+at a time in this process. If `trigger_tick` arrives while a cron-fired
+tick is mid-flight, `runTick()` returns `skipped_overlap` immediately,
+before any fetch or write — and the MCP tool surfaces that as a
+**successful** result (`isError` unset), not a failure: an overlapping
+tick is a defined, healthy outcome already first-class in the
+`TickResult` union, and the board still gets refreshed by whichever
+tick is actually running. The same guard protects the mirror case (a
+cron tick landing mid-MCP-tick) and two concurrent MCP calls, for the
+same reason.
+
+### Transport
+
+Streamable-HTTP, mounted as a custom channel the same way `board.ts`
+and `tick.ts` are — a `POST /mcp` route builds a fresh `McpServer` +
+stateless transport per request and hands it the incoming `Request`.
+`/mcp` is deliberately extensionless: dotted custom-channel paths fail
+the Nitro build (the same constraint that shaped `/board`/`/board/md`
+instead of `/board.json`; see [eve-api-notes.md](eve-api-notes.md)
+§3). The server runs **stateless JSON mode** — no SSE session stream —
+because neither tool needs one: `get_board` and `trigger_tick` are
+both single-request/single-response, and per-request `McpServer`
+construction needs no session affinity across calls. `GET /mcp`
+returns `405` deliberately; there is no stream to open in this mode.
+
+### `server.json` and tenancy
+
+`server.json` at the repo root is the MCP registry document — the
+shape a `cloister add` (or any MCP client's registration flow)
+resolves. It declares:
+
+- `name`/`title`/`description` identifying the server and what it does.
+- A `remotes` entry of type `streamable-http` pointing at `/mcp`, with
+  the port as a `variables` default (`2000`, eve's observed dev port —
+  see [eve-api-notes.md](eve-api-notes.md) §3) so an operator overrides
+  it per deployment rather than the document hardcoding one.
+- `_meta."art.cloister/v1".tenancy.default_mode: "external"`,
+  `trusted_tier: false`. This is a structural default, not a policy
+  preference: canonical-hours runs on Node via eve — it depends on
+  Node builtins and npm packages that aren't v8-isolate/Workers
+  compatible — so it cannot be co-located inside cloister's workerd
+  sandbox, and `external`/untrusted is the correct default for a
+  standing Node process cloister only ever reaches over the network,
+  per cloister's own tenancy docs. No `groups` partitioning is
+  declared — two tools don't need splitting into separate cloister
+  backends, and cloister's resolver falls back to one coarse backend
+  for exactly this case.
+
+### Pointing a client at it
+
+For local development, `server.json`'s `remotes[0].url` resolves to
+`http://localhost:2000/mcp` against `eve dev`'s default port — any MCP
+client (cloister's registration flow, or a bare
+`StreamableHTTPClientTransport` from `@modelcontextprotocol/sdk`) can
+connect directly. For a real deployment, register the deployed
+`server.json` with cloister (`cloister add` or equivalent), overriding
+the `port` variable — or the whole `remotes[0].url` — to the actual
+host. Nothing about the tools themselves changes between local and
+deployed; only the address a client dials.
+
 ## Design decisions
 
 ### Why GitHub is the sole hard-verdict source
@@ -419,6 +536,34 @@ output):
   `/board/md` do not. This shaped the actual route names in
   `agent/channels/board.ts`.
 
+**Proven, via an automated end-to-end test** (`test/mcp-channel.test.ts`,
+a real `node:http` server wrapping the channel's own route handler, and
+the real `@modelcontextprotocol/sdk` `Client` +
+`StreamableHTTPClientTransport` — not the in-memory transport, not a
+mock — talking over an actual HTTP round-trip on an ephemeral port):
+
+- `initialize` and `tools/list` succeed over real streamable-HTTP and
+  report exactly `get_board` and `trigger_tick`, each with a schema.
+- `get_board` round-trips a real written board (structured content
+  matches `BoardSchema`, text content matches `renderBoardMd()`
+  byte-for-byte) and correctly returns `board: null` with no error when
+  none exists yet.
+- The overlap guard holds across the MCP trigger boundary specifically:
+  a tick occupying `agent/lib/tick.ts`'s real `running` flag causes a
+  concurrent `trigger_tick` HTTP call to return `skipped_overlap` (not
+  an error), through the full stack — proving the "trigger-source-agnostic"
+  claim above isn't just a code-reading inference.
+- `trigger_tick` surfaces a genuine misconfiguration (missing
+  `LECTIO_URL`/`LECTIO_TOKEN`) as `isError: true` with the underlying
+  message, through the full HTTP stack.
+
+This is a different verification mode than the `eve dev` bullets
+above: it proves the MCP protocol layer and the channel's own route
+handlers work correctly against a real client, but it does not run
+through eve's own dev server — whether eve actually mounts and routes
+`/mcp` correctly inside `eve dev` (the way the REST routes above were
+confirmed via live `curl`) is still open, see below.
+
 **Not yet verified — needs a real deployment:**
 
 - **Whether the material path's board write lands on the same
@@ -446,6 +591,20 @@ output):
   which is exactly the shape a production Vercel Cron misfire (or a
   redeploy racing a scheduled tick) could take. Untested because there
   is no deployment to test it against yet.
+- **Whether `eve dev`/the real Nitro build actually mounts `/mcp`
+  correctly.** The MCP e2e test above exercises the channel's route
+  handlers directly (via `node:http`), the same technique the REST
+  routes' own unit tests use — it never routes a request through eve's
+  own dev server or a production build, so it can't catch a build- or
+  routing-layer problem specific to eve's handling of this channel
+  (e.g. a Nitro quirk with `POST`+`GET` on the same extensionless
+  path). Needs the same live `eve dev` + `curl`/real-MCP-client smoke
+  test the REST routes already got (see the `Proven` bullets above and
+  eve-api-notes.md §3).
+- **`cloister` registration end-to-end.** `server.json` has only been
+  validated for shape (Task 4's tests parse and assert its fields) —
+  it has never actually been fed to `cloister add` or an equivalent
+  registration flow against a running canonical-hours instance.
 - **fly.io and Vercel deployment themselves.** Deliberately deferred —
   there is no CI workflow and no deployment configuration in this repo
   yet. Everything above has only ever been exercised against a local
@@ -462,6 +621,11 @@ local `bd list` — see note below):
 - `canonical-hours-dc68b5` — a recurring false-positive IDE diagnostic
   ("Cannot find module") on freshly-created files during development;
   confirmed not a real bug, tracked so it doesn't get re-investigated.
+- `canonical-hours-fb3734` — verifying `/mcp` actually mounts correctly
+  under real `eve dev`/a production Nitro build (the MCP surface's
+  version of the material-path-verification gap above).
+- `canonical-hours-fb3f87` — verifying `server.json` against a real
+  `cloister add`/registration flow, not just its own shape tests.
 
 (Aside for contributors: `bd list` in this repo currently reports zero
 issues even though the beads above exist and are correctly scoped —

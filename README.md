@@ -68,6 +68,38 @@ stateless instead of cursor-based, the zero-LLM-call short-circuit, and
 a worked example tracing one PR through the whole pipeline — is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## MCP surface
+
+canonical-hours is meant to be the general home for scheduled,
+repeatable agent tasks — not just a PR board — so that whole class of
+capability needs to be queryable and triggerable by other agent
+infrastructure, not just by a human hitting `curl`. Alongside the REST
+routes above, it also speaks
+[MCP](https://modelcontextprotocol.io) (streamable-HTTP, JSON mode) at
+`/mcp`, so it can be registered as a tool server with
+[cloister](../cloister) (a v8-isolate hypervisor that bundles MCP
+servers behind one endpoint) or any other MCP client — no separate
+process, no polling loop on the client side.
+
+Two tools, mirroring what's already exposed over REST:
+
+| Tool | Kind | Behavior |
+| --- | --- | --- |
+| `get_board` | read-only | Same data as `GET /board` / `GET /board/md` — the current board as structured JSON plus rendered markdown. Never triggers a tick. |
+| `trigger_tick` | action | Runs a tick now (the same `prBoardTick()` the cron schedule calls) and returns the real six-way `TickResult`, including `skipped_overlap` — a legitimate result, not an error, when a tick is already in flight. |
+
+`server.json` at the repo root is the registry document a cloister
+`cloister add` (or equivalent MCP client registration) consumes: it
+declares the `streamable-http` remote at `/mcp` with a configurable
+port, and marks the server `external`/untrusted tenancy — canonical-hours
+runs on Node via eve, not inside a v8 isolate, so it can't be
+co-located with the hypervisor and shouldn't be trusted as if it were.
+To point a client at a running instance, register the deployed
+`server.json` (or hand the client the remote URL directly:
+`http://<host>:<port>/mcp`). See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-mcp-surface) for the
+transport and tenancy details.
+
 ## Repo map
 
 - `agent/sources/` — the `Source` protocol and the two adapters
@@ -78,6 +110,9 @@ a worked example tracing one PR through the whole pipeline — is in
   markdown renderer, and atomic writer.
 - `agent/lib/tick.ts`, `agent/schedules/pr-board.ts`,
   `agent/channels/{tick,board}.ts` — the scheduled tick and its wiring.
+- `agent/channels/mcp.ts`, `server.json` — the MCP surface (`get_board`,
+  `trigger_tick`) and its registry document, for cloister and other MCP
+  clients.
 - `canonical-hours.toml`, `agent/lib/config.ts` — committed non-secret
   config (tick cron, weather location) and its loader; secrets stay in
   `.env`.
