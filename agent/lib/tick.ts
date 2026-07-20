@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { FetchWindow, LifecycleEvent, Source } from "../sources/source";
 import { MergedArtifact, mergeEvents } from "../sources/merge";
 import { Board, readBoard, writeBoardAtomic } from "./board";
@@ -69,6 +70,30 @@ export function toBoardPr(m: MergedArtifact): Board["prs"][number] {
       classification: o.classification,
     })),
   };
+}
+
+/**
+ * Identity of the material set: for each material artifact, its URI, state,
+ * and the full identity of its observation set (not just the latest
+ * timestamp — the tick is stateless and re-fetches the whole window every
+ * time, so a new observation is not guaranteed to advance the max timestamp;
+ * hashing only the max would silently miss a backfilled/out-of-order/
+ * same-second observation and skip a real re-summarization). Sensitive to
+ * exactly what should re-invoke the LLM: a new material PR, a state flip, a
+ * PR leaving the set, or any change to a material PR's observation set —
+ * added, removed, or reordered. Insensitive to non-material churn and fetch
+ * order.
+ */
+export function computeMaterialHash(material: MergedArtifact[]): string {
+  const tuples: [string, string, string][] = material.map((m) => {
+    const obsIdentity = m.observations
+      .map((o) => `${o.at}|${o.type}`)
+      .sort()
+      .join(",");
+    return [m.artifact.uri, m.state, obsIdentity];
+  });
+  tuples.sort((a, b) => a[0].localeCompare(b[0]));
+  return createHash("sha256").update(JSON.stringify(tuples)).digest("hex");
 }
 
 /**
