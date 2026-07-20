@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { FetchWindow, LifecycleEvent, Source } from "../sources/source";
 import { MergedArtifact, mergeEvents } from "../sources/merge";
+import { SnapshotSource, SnapshotValue } from "../sources/snapshot";
 import { Board, readBoard, writeBoardAtomic } from "./board";
 import { AgentTickInput } from "./invoke-agent";
 
@@ -14,6 +15,8 @@ export interface TickDeps {
   /** Runs the Haiku agent over material; the agent writes via the board tool itself. */
   invokeAgent: (input: AgentTickInput) => Promise<void>;
   boardDir?: string;
+  /** Current-value sources (no lifecycle, no window, no LLM). Default []. */
+  snapshotSources?: SnapshotSource[];
 }
 
 export type TickResult =
@@ -159,6 +162,28 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
     }
   }
 
+  // Snapshot sources: fetched deterministically on every tick, attached to
+  // whichever board gets written, entirely outside the LLM path. A snapshot
+  // source that seems to need summarization is not a snapshot source.
+  const snapshots: SnapshotValue[] = [];
+  for (const source of deps.snapshotSources ?? []) {
+    try {
+      snapshots.push(await source.fetch());
+    } catch (err) {
+      const prior = previous?.degradations.find((d) => d.source === source.name);
+      degradations.push({
+        source: source.name,
+        error: err instanceof Error ? err.message : String(err),
+        since: prior?.since ?? now.toISOString(),
+      });
+    }
+    try {
+      freshness.push({ source: source.name, last_advanced_at: await source.freshness() });
+    } catch {
+      freshness.push({ source: source.name, last_advanced_at: null });
+    }
+  }
+
   const merged = mergeEvents(eventsBySource, deps.priority);
   const material = merged.filter((m) => m.state === "needs_you" || m.state === "active");
   const materialHash = computeMaterialHash(material);
@@ -172,6 +197,7 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
       freshness,
       degradations,
       prs: merged.map(toBoardPr),
+      snapshots,
       material_hash: materialHash,
     };
     await writeBoardAtomic(board, deps.boardDir);
@@ -200,6 +226,7 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
         ...toBoardPr(m),
         summary: previousSummaries.get(m.artifact.uri),
       })),
+      snapshots,
       material_hash: materialHash,
     };
     await writeBoardAtomic(board, deps.boardDir);
@@ -215,7 +242,7 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
         // Post-write overlay: the model's board is never trusted for
         // material_hash (same principle as the board tool's generated_at
         // stamp, enforced one level up — tools/board.ts stays untouched).
-        await writeBoardAtomic({ ...written, material_hash: materialHash }, deps.boardDir);
+        await writeBoardAtomic({ ...written, snapshots, material_hash: materialHash }, deps.boardDir);
         return "material";
       }
     } catch {
@@ -234,6 +261,7 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
       { source: "agent", error: "agent produced no valid board after retry", since: now.toISOString() },
     ],
     prs: merged.map(toBoardPr),
+    snapshots,
     material_hash: materialHash,
   };
   await writeBoardAtomic(fallback, deps.boardDir);

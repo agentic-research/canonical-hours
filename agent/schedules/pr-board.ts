@@ -2,10 +2,13 @@
 // the installed package's dist/src/public/definitions/schedule.d.ts
 // (docs/eve-api-notes.md fact 1).
 import { defineSchedule } from "eve/schedules";
+import { loadConfig } from "../lib/config";
 import { prBoardTick } from "../lib/tick-entry";
 
+const config = loadConfig();
+
 export default defineSchedule({
-  cron: "0 */4 * * *", // every 4 hours — workday check-in cadence
+  cron: config.schedule.cron, // was hardcoded "0 */4 * * *"; default */5 — affordable because of material_unchanged
   async run({ receive, waitUntil, appAuth }) {
     // waitUntil extends the cron task's lifetime past return so the
     // durable session (and any in-flight fetches inside runTick) settle

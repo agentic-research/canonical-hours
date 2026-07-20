@@ -6,6 +6,7 @@ import { runTick, inQuietHours, _resetTickGuardForTests, computeMaterialHash, Ti
 import { readBoard, writeBoardAtomic, Board } from "../agent/lib/board";
 import { Source, LifecycleEvent, Observation } from "../agent/sources/source";
 import { MergedArtifact } from "../agent/sources/merge";
+import { SnapshotSource } from "../agent/sources/snapshot";
 
 const obs = (partial: Partial<Observation>): Observation => ({
   artifact_uri: "pr:o/r#1", at: "2026-07-16T12:00:00Z", author: "mark",
@@ -339,5 +340,78 @@ describe("three-way tick: material_unchanged", () => {
     clock.now = NOW2;
     expect(await runTick(d)).toBe("degraded_fallback");
     expect(counter.calls).toBe(4); // retried — NOT short-circuited by the matching hash
+  });
+});
+
+describe("snapshot sources in runTick", () => {
+  const okSnapshot: SnapshotSource = {
+    name: "weather",
+    async fetch() {
+      return {
+        kind: "weather", label: "Weather — Austin, TX",
+        value: "72°F, clear", as_of: "2026-07-17T07:55:00Z",
+      };
+    },
+    async freshness() { return "2026-07-17T07:55:00Z"; },
+  };
+
+  it("a successful snapshot source lands on the board with a freshness entry", async () => {
+    const d = await deps({
+      sources: [fakeSource("lectio", [event("pr:o/r#1", [obs({ type: "merge" })])])],
+      snapshotSources: [okSnapshot],
+    });
+    expect(await runTick(d)).toBe("all_clear");
+    const board = await readBoard(d.boardDir);
+    expect(board?.snapshots).toEqual([
+      { kind: "weather", label: "Weather — Austin, TX", value: "72°F, clear", as_of: "2026-07-17T07:55:00Z" },
+    ]);
+    expect(board?.freshness).toContainEqual({ source: "weather", last_advanced_at: "2026-07-17T07:55:00Z" });
+    expect(board?.tick_status).toBe("all_clear"); // no degradation
+  });
+
+  it("a throwing snapshot source degrades with since carried forward; PR pipeline unaffected", async () => {
+    const boom: SnapshotSource = {
+      name: "weather",
+      async fetch() { throw new Error("weather unreachable"); },
+      async freshness() { return null; },
+    };
+    const clock = { now: NOW };
+    const d = await deps({
+      sources: [fakeSource("lectio", [event("pr:o/r#1", [obs({ type: "merge" })])])],
+      snapshotSources: [boom],
+      now: () => clock.now,
+    });
+    expect(await runTick(d)).toBe("all_clear"); // never blocks the PR pipeline
+    const first = await readBoard(d.boardDir);
+    expect(first?.tick_status).toBe("degraded");
+    expect(first?.degradations).toEqual([
+      { source: "weather", error: "weather unreachable", since: NOW.toISOString() },
+    ]);
+    expect(first?.snapshots).toEqual([]); // board still written; weather's value simply absent
+    expect(first?.freshness).toContainEqual({ source: "weather", last_advanced_at: null });
+    expect(first?.prs).toHaveLength(1); // PR content unaffected
+
+    clock.now = NOW2;
+    expect(await runTick(d)).toBe("all_clear");
+    const second = await readBoard(d.boardDir);
+    expect(second?.degradations[0].since).toBe(NOW.toISOString()); // carried forward, identical to activity sources
+  });
+
+  it("a snapshot source whose freshness() throws records last_advanced_at: null", async () => {
+    const flaky: SnapshotSource = {
+      name: "weather",
+      async fetch() {
+        return { kind: "weather", label: "Weather — Austin, TX", value: "72°F, clear", as_of: "2026-07-17T07:55:00Z" };
+      },
+      async freshness() { throw new Error("freshness broken"); },
+    };
+    const d = await deps({
+      sources: [fakeSource("lectio", [event("pr:o/r#1", [obs({ type: "merge" })])])],
+      snapshotSources: [flaky],
+    });
+    expect(await runTick(d)).toBe("all_clear");
+    const board = await readBoard(d.boardDir);
+    expect(board?.freshness).toContainEqual({ source: "weather", last_advanced_at: null });
+    expect(board?.snapshots).toHaveLength(1); // fetch still succeeded
   });
 });
