@@ -20,6 +20,7 @@ export type TickResult =
   | "skipped_overlap"
   | "skipped_quiet"
   | "all_clear"
+  | "material_unchanged"
   | "material"
   | "degraded_fallback";
 
@@ -160,6 +161,7 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
 
   const merged = mergeEvents(eventsBySource, deps.priority);
   const material = merged.filter((m) => m.state === "needs_you" || m.state === "active");
+  const materialHash = computeMaterialHash(material);
 
   if (material.length === 0) {
     // All-clear (or all-degraded) path: templated board, zero LLM tokens.
@@ -170,9 +172,38 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
       freshness,
       degradations,
       prs: merged.map(toBoardPr),
+      material_hash: materialHash,
     };
     await writeBoardAtomic(board, deps.boardDir);
     return "all_clear";
+  }
+
+  // Three-way outcome: if the material set is byte-identical to the last written
+  // board's, re-summarizing it is not worth an LLM call. Guard: a previous
+  // agent-fallback board (degradations entry with source "agent") never
+  // short-circuits — the agent is retried so summaries recover after an outage.
+  const previousWasAgentFallback =
+    previous?.degradations.some((d) => d.source === "agent") ?? false;
+  if (previous?.material_hash === materialHash && !previousWasAgentFallback) {
+    const previousSummaries = new Map(
+      previous.prs.map((p) => [p.artifact_uri, p.summary] as const),
+    );
+    const board: Board = {
+      generated_at: now.toISOString(), // fresh — the staleness health check keeps working
+      tick_status: degradations.length > 0 ? "degraded" : "ok",
+      window: boardWindow,
+      freshness,
+      degradations,
+      // Deterministic fields (reason, new_items, state) from THIS tick's own fold;
+      // only the LLM's prose (summary) is reused, keyed by artifact_uri.
+      prs: merged.map((m) => ({
+        ...toBoardPr(m),
+        summary: previousSummaries.get(m.artifact.uri),
+      })),
+      material_hash: materialHash,
+    };
+    await writeBoardAtomic(board, deps.boardDir);
+    return "material_unchanged";
   }
 
   // Material path: agent triages/summarizes and writes via the board tool.
@@ -180,7 +211,13 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
     try {
       await deps.invokeAgent({ merged, freshness, degradations, window: boardWindow });
       const written = await readBoard(deps.boardDir);
-      if (written && written.generated_at >= now.toISOString()) return "material";
+      if (written && written.generated_at >= now.toISOString()) {
+        // Post-write overlay: the model's board is never trusted for
+        // material_hash (same principle as the board tool's generated_at
+        // stamp, enforced one level up — tools/board.ts stays untouched).
+        await writeBoardAtomic({ ...written, material_hash: materialHash }, deps.boardDir);
+        return "material";
+      }
     } catch {
       // fall through to retry / degraded fallback (spec §2.4 — bad LLM output)
     }
@@ -197,6 +234,7 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
       { source: "agent", error: "agent produced no valid board after retry", since: now.toISOString() },
     ],
     prs: merged.map(toBoardPr),
+    material_hash: materialHash,
   };
   await writeBoardAtomic(fallback, deps.boardDir);
   return "degraded_fallback";

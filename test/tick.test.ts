@@ -236,3 +236,108 @@ describe("computeMaterialHash", () => {
     expect(computeMaterialHash([two])).not.toBe(computeMaterialHash([one]));
   });
 });
+
+const NOW2 = new Date("2026-07-17T08:05:00Z");
+const NOW3 = new Date("2026-07-17T08:10:00Z");
+
+/** invokeAgent stub mirroring the existing material-path test: writes a valid board, counts calls. */
+function summarizingAgent(d: TickDeps, counter: { calls: number }, clock: { now: Date }) {
+  return async (input: Parameters<TickDeps["invokeAgent"]>[0]) => {
+    counter.calls++;
+    const board: Board = {
+      generated_at: clock.now.toISOString(),
+      tick_status: "ok",
+      window: input.window,
+      freshness: input.freshness,
+      degradations: input.degradations,
+      prs: input.merged.map((m) => ({
+        artifact_uri: m.artifact.uri, repo: m.artifact.repo, number: m.artifact.number,
+        title: m.artifact.title, url: m.artifact.url, state: m.state,
+        reason: "agent-authored reason", new_items: [], summary: "Mark commented.",
+      })),
+    };
+    await writeBoardAtomic(board, d.boardDir);
+  };
+}
+
+describe("three-way tick: material_unchanged", () => {
+  it("identical material set on the next tick skips the LLM but refreshes the board", async () => {
+    const events = [event("pr:o/r#1", [obs({})])]; // unanswered comment → needs_you
+    const counter = { calls: 0 };
+    const clock = { now: NOW };
+    const d = await deps({ sources: [fakeSource("lectio", events)], now: () => clock.now });
+    d.invokeAgent = summarizingAgent(d, counter, clock);
+
+    // Tick 1: material — agent invoked once; runTick overlays material_hash post-write.
+    expect(await runTick(d)).toBe("material");
+    expect(counter.calls).toBe(1);
+    const after1 = await readBoard(d.boardDir);
+    expect(after1?.material_hash).toBeDefined();
+    expect(after1?.prs[0].summary).toBe("Mark commented.");
+
+    // Tick 2: same data, later now — LLM skipped entirely, board still refreshed.
+    clock.now = NOW2;
+    expect(await runTick(d)).toBe("material_unchanged");
+    expect(counter.calls).toBe(1); // counter still 1 — zero new LLM calls
+    const after2 = await readBoard(d.boardDir);
+    expect(after2?.generated_at).toBe(NOW2.toISOString()); // staleness health signal stays alive
+    expect(after2!.generated_at > after1!.generated_at).toBe(true);
+    expect(after2?.prs[0].summary).toBe("Mark commented."); // LLM prose carried over byte-identical
+    // Deterministic fields re-derived from THIS tick's fold, not copied from the agent board:
+    expect(after2?.prs[0].reason).toBe("unanswered review/comment or standing changes_requested");
+    expect(after2?.prs[0].new_items).toHaveLength(1);
+    expect(after2?.tick_status).toBe("ok");
+    expect(after2?.material_hash).toBe(after1?.material_hash);
+
+    // Tick 3: a new observation on the material PR — hash changes, agent re-invoked.
+    events[0].observations.push(obs({ at: "2026-07-17T08:07:00Z", payload: { preview: "again" } }));
+    clock.now = NOW3;
+    expect(await runTick(d)).toBe("material");
+    expect(counter.calls).toBe(2);
+  });
+
+  it("all_clear board carries a material_hash (stable hash of the empty set)", async () => {
+    const d = await deps({
+      sources: [fakeSource("lectio", [event("pr:o/r#1", [obs({ type: "merge" })])])],
+    });
+    expect(await runTick(d)).toBe("all_clear");
+    const board = await readBoard(d.boardDir);
+    expect(board?.material_hash).toBeDefined();
+  });
+
+  it("non-material churn (a resolved PR gaining an observation) → material_unchanged", async () => {
+    const resolvedObs = [obs({ artifact_uri: "pr:o/r#2", type: "merge" })];
+    const events = [
+      event("pr:o/r#1", [obs({})]),          // material: needs_you
+      event("pr:o/r#2", resolvedObs),        // non-material: resolved
+    ];
+    const counter = { calls: 0 };
+    const clock = { now: NOW };
+    const d = await deps({ sources: [fakeSource("lectio", events)], now: () => clock.now });
+    d.invokeAgent = summarizingAgent(d, counter, clock);
+
+    expect(await runTick(d)).toBe("material");
+    // Only the resolved artifact changes between ticks — the filtered material set's hash is unmoved.
+    resolvedObs.push(obs({ artifact_uri: "pr:o/r#2", at: "2026-07-17T08:03:00Z", type: "comment" }));
+    clock.now = NOW2;
+    expect(await runTick(d)).toBe("material_unchanged");
+    expect(counter.calls).toBe(1);
+  });
+
+  it("a hash match against an agent-fallback board still retries the agent (summaries recover after an outage)", async () => {
+    const events = [event("pr:o/r#1", [obs({})])];
+    const counter = { calls: 0 };
+    const clock = { now: NOW };
+    const d = await deps({ sources: [fakeSource("lectio", events)], now: () => clock.now });
+    d.invokeAgent = async () => { counter.calls++; }; // never writes a board → fallback
+
+    expect(await runTick(d)).toBe("degraded_fallback");
+    expect(counter.calls).toBe(2); // initial + one retry (existing behavior)
+    const fallback = await readBoard(d.boardDir);
+    expect(fallback?.material_hash).toBeDefined(); // fallback board carries the hash too
+
+    clock.now = NOW2;
+    expect(await runTick(d)).toBe("degraded_fallback");
+    expect(counter.calls).toBe(4); // retried — NOT short-circuited by the matching hash
+  });
+});
