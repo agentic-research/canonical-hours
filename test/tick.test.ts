@@ -415,3 +415,71 @@ describe("snapshot sources in runTick", () => {
     expect(board?.snapshots).toHaveLength(1); // fetch still succeeded
   });
 });
+
+describe("snapshots + material_hash land on every outcome", () => {
+  const value = {
+    kind: "weather", label: "Weather — Austin, TX",
+    value: "72°F, clear", as_of: "2026-07-17T07:55:00Z",
+  };
+  const stub: SnapshotSource = {
+    name: "weather",
+    async fetch() { return value; },
+    async freshness() { return value.as_of; },
+  };
+
+  it("all_clear", async () => {
+    const d = await deps({
+      sources: [fakeSource("lectio", [event("pr:o/r#1", [obs({ type: "merge" })])])],
+      snapshotSources: [stub],
+    });
+    expect(await runTick(d)).toBe("all_clear");
+    const board = await readBoard(d.boardDir);
+    expect(board?.snapshots).toEqual([value]);
+    expect(board?.material_hash).toBeDefined();
+  });
+
+  it("material (agent-written board gets the overlay — the agent never sees either field)", async () => {
+    const counter = { calls: 0 };
+    const clock = { now: NOW };
+    const d = await deps({
+      sources: [fakeSource("lectio", [event("pr:o/r#1", [obs({})])])],
+      snapshotSources: [stub],
+      now: () => clock.now,
+    });
+    d.invokeAgent = summarizingAgent(d, counter, clock); // writes a board WITHOUT snapshots/hash
+    expect(await runTick(d)).toBe("material");
+    const board = await readBoard(d.boardDir);
+    expect(board?.snapshots).toEqual([value]); // overlaid by runTick, not authored by the agent
+    expect(board?.material_hash).toBeDefined();
+    expect(board?.prs[0].summary).toBe("Mark commented."); // agent's content preserved through the overlay
+  });
+
+  it("material_unchanged", async () => {
+    const counter = { calls: 0 };
+    const clock = { now: NOW };
+    const d = await deps({
+      sources: [fakeSource("lectio", [event("pr:o/r#1", [obs({})])])],
+      snapshotSources: [stub],
+      now: () => clock.now,
+    });
+    d.invokeAgent = summarizingAgent(d, counter, clock);
+    expect(await runTick(d)).toBe("material");
+    clock.now = NOW2;
+    expect(await runTick(d)).toBe("material_unchanged");
+    const board = await readBoard(d.boardDir);
+    expect(board?.snapshots).toEqual([value]);
+    expect(board?.material_hash).toBeDefined();
+  });
+
+  it("degraded_fallback", async () => {
+    const d = await deps({
+      sources: [fakeSource("lectio", [event("pr:o/r#1", [obs({})])])],
+      snapshotSources: [stub],
+    });
+    d.invokeAgent = async () => {}; // never writes → fallback after retry
+    expect(await runTick(d)).toBe("degraded_fallback");
+    const board = await readBoard(d.boardDir);
+    expect(board?.snapshots).toEqual([value]);
+    expect(board?.material_hash).toBeDefined();
+  });
+});
