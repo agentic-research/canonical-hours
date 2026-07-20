@@ -6,6 +6,7 @@ import {
   LIFECYCLE_SORT_ORDER,
   LifecycleStateSchema,
 } from "../sources/source";
+import { SnapshotValueSchema } from "../sources/snapshot";
 
 export const BoardItemSchema = z.object({
   type: z.string(),
@@ -36,6 +37,13 @@ export const BoardSchema = z.object({
   freshness: z.array(z.object({ source: z.string(), last_advanced_at: z.string().nullable() })),
   degradations: z.array(z.object({ source: z.string(), error: z.string(), since: z.string() })),
   prs: z.array(BoardPrSchema),
+  // Both optional deliberately: (1) migration — readBoard() returns null on ANY
+  // parse failure; required fields would make the first post-deploy tick discard
+  // degradations.since carry-forward. (2) model-input hygiene — tools/board.ts
+  // uses BoardSchema as inputSchema; the model must never be required to
+  // fabricate either. Both are runtime-authoritative, stamped by runTick.
+  snapshots: z.array(SnapshotValueSchema).optional(),
+  material_hash: z.string().optional(),
 });
 export type Board = z.infer<typeof BoardSchema>;
 
@@ -59,6 +67,13 @@ export function renderBoardMd(board: Board): string {
   }
   lines.push("", "## Freshness");
   for (const f of board.freshness) lines.push(`- ${f.source}: ${f.last_advanced_at ?? "unknown"}`);
+
+  if (board.snapshots && board.snapshots.length > 0) {
+    lines.push("", "## Snapshots");
+    for (const s of board.snapshots) {
+      lines.push(`- ${s.label}: ${s.value}${s.detail ? ` (${s.detail})` : ""} — as of ${s.as_of}`);
+    }
+  }
 
   const active = board.prs.filter((p) => p.state !== "resolved");
   const resolved = board.prs.filter((p) => p.state === "resolved");
