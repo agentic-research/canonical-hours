@@ -2,9 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { registerGetBoardTool, registerTriggerTickTool } from "../agent/channels/mcp";
 import mcpChannel from "../agent/channels/mcp";
 import { Board, BoardSchema, renderBoardMd, writeBoardAtomic } from "../agent/lib/board";
@@ -250,5 +252,149 @@ describe("mcp channel routes", () => {
     };
     expect(body.jsonrpc).toBe("2.0");
     expect(body.result.serverInfo.name).toBe("canonical-hours");
+  });
+});
+
+/**
+ * Minimal node:http adapter (spec §5): Node request → web-standard Request →
+ * the channel's own route handler → Response → Node response. Ephemeral port
+ * via listen(0) — works identically on macOS (dev) and Linux (deploy/CI).
+ */
+async function startHarness(): Promise<{ url: string; close: () => Promise<void> }> {
+  const post = routeHandler("POST");
+  const get = routeHandler("GET");
+  const server = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    const body = Buffer.concat(chunks);
+    const headers = new Headers();
+    for (const [k, v] of Object.entries(req.headers)) {
+      if (typeof v === "string") headers.set(k, v);
+      else if (Array.isArray(v)) for (const item of v) headers.append(k, item);
+    }
+    const request = new Request(`http://127.0.0.1${req.url ?? "/"}`, {
+      method: req.method,
+      headers,
+      body: body.length > 0 ? body : undefined,
+    });
+    const handler = req.method === "POST" ? post : get;
+    const response = await handler(request, stubRouteArgs());
+    res.writeHead(response.status, Object.fromEntries(response.headers));
+    res.end(Buffer.from(await response.arrayBuffer()));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (typeof address !== "object" || address === null) throw new Error("no server address");
+  return {
+    url: `http://127.0.0.1:${address.port}/mcp`,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      }),
+  };
+}
+
+async function connectHttpClient(url: string): Promise<Client> {
+  const client = new Client({ name: "mcp-e2e-test", version: "0.0.0" });
+  await client.connect(new StreamableHTTPClientTransport(new URL(url)));
+  return client;
+}
+
+describe("e2e: real SDK client over streamable-HTTP", () => {
+  beforeEach(() => _resetTickGuardForTests());
+
+  it("initialize succeeds; tools/list returns exactly get_board and trigger_tick with schemas", async () => {
+    const harness = await startHarness();
+    const client = await connectHttpClient(harness.url);
+    try {
+      const tools = await client.listTools();
+      expect(tools.tools.map((t) => t.name).sort()).toEqual(["get_board", "trigger_tick"]);
+      for (const tool of tools.tools) {
+        expect(tool.inputSchema).toBeDefined();
+        expect(tool.outputSchema).toBeDefined();
+      }
+    } finally {
+      await client.close();
+      await harness.close();
+    }
+  });
+
+  it("get_board end-to-end: BoardSchema-valid structured content + renderBoardMd text; null when empty", async () => {
+    const harness = await startHarness();
+    try {
+      const written = await useFixtureBoard();
+      const client = await connectHttpClient(harness.url);
+      const result = await client.callTool({ name: "get_board", arguments: {} });
+      expect(result.isError).toBeFalsy();
+      const parsed = BoardSchema.parse((result.structuredContent as { board: unknown }).board);
+      expect(parsed.material_hash).toBe(written.material_hash);
+      expect((result.content as Array<{ text: string }>)[0].text).toBe(renderBoardMd(written));
+      await client.close();
+
+      process.env.BOARD_DIR = await mkdtemp(join(tmpdir(), "mcp-e2e-empty-"));
+      const client2 = await connectHttpClient(harness.url);
+      const empty = await client2.callTool({ name: "get_board", arguments: {} });
+      expect(empty.isError).toBeFalsy();
+      expect((empty.structuredContent as { board: unknown }).board).toBeNull();
+      await client2.close();
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("trigger_tick racing an in-flight tick returns skipped_overlap through the full HTTP stack", async () => {
+    process.env.LECTIO_URL = "http://127.0.0.1:1/mcp"; // never contacted
+    process.env.LECTIO_TOKEN = "dummy";
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const blocked: Source = {
+      name: "lectio",
+      schema: { parse: (x: unknown) => x } as Source["schema"],
+      async fetch() {
+        await gate;
+        return [];
+      },
+      mapToLifecycleEvent(raw: unknown) {
+        return raw as LifecycleEvent;
+      },
+      async freshness() {
+        return null;
+      },
+    };
+    const dir = await mkdtemp(join(tmpdir(), "mcp-e2e-tick-"));
+    const first = runTick({
+      sources: [blocked],
+      priority: ["lectio", "github"],
+      invokeAgent: async () => {},
+      boardDir: dir,
+    });
+    const harness = await startHarness();
+    const client = await connectHttpClient(harness.url);
+    try {
+      const result = await client.callTool({ name: "trigger_tick", arguments: {} });
+      expect(result.isError).toBeFalsy();
+      expect((result.structuredContent as { result: string }).result).toBe("skipped_overlap");
+    } finally {
+      release();
+      expect(await first).toBe("all_clear");
+      await client.close();
+      await harness.close();
+    }
+  });
+
+  it("trigger_tick with LECTIO env unset surfaces isError through the full HTTP stack", async () => {
+    delete process.env.LECTIO_URL;
+    delete process.env.LECTIO_TOKEN;
+    const harness = await startHarness();
+    const client = await connectHttpClient(harness.url);
+    try {
+      const result = await client.callTool({ name: "trigger_tick", arguments: {} });
+      expect(result.isError).toBe(true);
+      expect((result.content as Array<{ text: string }>)[0].text).toMatch(/LECTIO_URL/);
+    } finally {
+      await client.close();
+      await harness.close();
+    }
   });
 });
