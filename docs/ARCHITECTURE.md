@@ -1,10 +1,12 @@
 # Architecture
 
 canonical-hours is a scheduled [eve.dev](https://eve.dev) agent: a
-4-hour cron tick that fetches authored-PR activity from two sources,
-merges and folds it into a four-state lifecycle, and — only when
-something actually needs attention — invokes a Haiku model to triage
-and write a status board. If you're trying to *run* it, start at
+cron tick (cadence from `canonical-hours.toml`, default every 5
+minutes) that fetches authored-PR activity from two sources, merges and
+folds it into a four-state lifecycle, attaches current-value snapshots
+(weather), and — only when the material set actually *changed* —
+invokes a Haiku model to triage and write a status board. If you're
+trying to *run* it, start at
 [../README.md](../README.md). This document covers what actually runs,
 why it's built the way it is, and what's proven vs. still unverified.
 
@@ -12,16 +14,17 @@ why it's built the way it is, and what's proven vs. still unverified.
 
 ```mermaid
 graph TB
-    CRON["agent/schedules/pr-board.ts<br/>cron: 0 */4 * * *"]
+    CRON["agent/schedules/pr-board.ts<br/>cron from canonical-hours.toml (default */5)"]
     ENTRY["agent/lib/tick-entry.ts<br/>prBoardTick()"]
     TICK["agent/lib/tick.ts<br/>runTick()"]
 
     GH["agent/sources/github.ts<br/>GithubSource"]
     LEC["agent/sources/lectio.ts<br/>LectioSource"]
     MERGE["agent/sources/merge.ts<br/>mergeEvents() + foldState()"]
+    SNAP["agent/sources/weather.ts<br/>WeatherSource (SnapshotSource)"]
 
-    QUIET{{"material PRs\n(needs_you | active)?"}}
-    TEMPLATE["templated board,\nzero LLM calls"]
+    QUIET{{"material set —<br/>empty | unchanged | changed?"}}
+    TEMPLATE["deterministic board,\nzero LLM calls"]
     CHAN["agent/channels/tick.ts<br/>(internal receive channel)"]
     HAIKU["agent/agent.ts<br/>Haiku model + pr-board skill"]
     TOOL["agent/tools/board.ts<br/>board tool (validates + writes)"]
@@ -32,11 +35,13 @@ graph TB
     CRON --> ENTRY --> TICK
     TICK --> GH
     TICK --> LEC
+    TICK --> SNAP
     GH --> MERGE
     LEC --> MERGE
     MERGE --> QUIET
-    QUIET -->|no| TEMPLATE --> BOARDLIB
-    QUIET -->|yes| CHAN --> HAIKU --> TOOL --> BOARDLIB
+    SNAP --> BOARDLIB
+    QUIET -->|empty or unchanged| TEMPLATE --> BOARDLIB
+    QUIET -->|changed| CHAN --> HAIKU --> TOOL --> BOARDLIB
     BOARDLIB --> HTTP
 ```
 
@@ -47,14 +52,27 @@ graph TB
   `agent/sandbox.ts` (`SANDBOX_BACKEND=docker|vercel|auto`, env-driven
   so the same code runs against a local Docker daemon or Vercel
   Sandbox without a rebuild).
-- **`agent/schedules/pr-board.ts`** — the cron entry point (`0 */4 * * *`).
-  It does nothing but call `waitUntil(prBoardTick(...))`, forwarding the
-  schedule handler's own `receive`/`appAuth`.
+- **`agent/schedules/pr-board.ts`** — the cron entry point (cadence read
+  from `loadConfig()` at module load). It does nothing but call
+  `waitUntil(prBoardTick(...))`, forwarding the schedule handler's own
+  `receive`/`appAuth`.
 - **`agent/lib/tick.ts`** (`runTick`) — the deterministic core: fetch
   from every source independently, merge, fold, decide whether the tick
   is material, and either write a templated board directly or hand off
   to the agent. Never throws out of `runTick` itself — a failing source
   becomes a degradation entry, not a crash.
+- **`agent/lib/config.ts`** — `loadConfig()`: synchronous parse +
+  zod-validation of the committed, non-secret `canonical-hours.toml`
+  (`[schedule] cron`, `[weather] location`). Missing file → defaults
+  (5-minute cron, no weather source registered); malformed file →
+  throws at module load. Secrets never live here — `WEATHER_API_KEY`
+  stays in env, exactly like `GITHUB_TOKEN`.
+- **`agent/sources/snapshot.ts` / `agent/sources/weather.ts`** — the
+  `SnapshotSource` protocol (three members: `name`, `fetch()`,
+  `freshness()`) and its first implementation. Snapshots are
+  current-value readings with no window, no lifecycle, and no LLM
+  involvement; they never enter `mergeEvents`/`foldState` and never
+  appear in `AgentTickInput`.
 - **`agent/channels/tick.ts`** — an internal-only channel (`routes: []`,
   unreachable over HTTP) that exists solely so the tick can `receive()`
   the Haiku agent and *block until the agent's turn has actually
@@ -152,6 +170,33 @@ classifications. A future adapter isn't obligated to pick a side; the
 protocol doesn't care whether a source ever emits `hard` observations,
 only that it's honest about which it's asserting.
 
+## The second source kind: snapshots
+
+The board now carries two kinds of sources. Activity-fold sources are
+the `Source` protocol above, untouched. **Snapshot sources**
+(`agent/sources/snapshot.ts`) are deliberately smaller — a name, a
+`fetch(): Promise<SnapshotValue>`, a `freshness()` — because a
+current-value reading has no window and no lifecycle to fold. The two
+interfaces are separate on purpose: a unified discriminated union would
+force snapshot sources to fake a `FetchWindow` and grow a branch in
+every downstream consumer, reintroducing exactly the source-specific
+leakage the existing protocol avoids.
+
+The load-bearing rule: **snapshots never touch the LLM path.** There is
+no judgment call in "it's 72°F." They are fetched deterministically on
+every tick (each in its own try/catch — a failure is that source's
+`degradations` entry with `since` carried forward, identical to
+activity sources) and stamped by `runTick` onto whichever board gets
+written, on every outcome — entirely outside `AgentTickInput`,
+`agentPrompt`, and the agent's instructions. A snapshot source that
+seems to need summarization is not a snapshot source — it's an
+activity source or out of scope.
+
+The registry invariant extends to the new kind: adding a second
+snapshot source is a new `agent/sources/*.ts` module plus one entry in
+`tick-entry.ts`'s `snapshotSources` array. If it ever requires editing
+`tick.ts` or the agent's instructions, the abstraction has leaked.
+
 ## Data flow: one tick
 
 1. **Fetch.** `runTick` calls `fetch(window)` on each configured
@@ -160,13 +205,19 @@ only that it's honest about which it's asserting.
    now }` — see [Why stateless](#why-stateless-a-72h-window-not-a-cursor)
    below. A source that throws becomes a `degradations` entry (with the
    *original* failure timestamp preserved across ticks via the previous
-   board, not reset every 4 hours); it does not stop the other source or
+   board, not reset every tick); it does not stop the other source or
    abort the tick.
-2. **Normalize.** Each raw record is parsed against the adapter's own
+2. **Fetch (snapshots).** In the same loop structure, each
+   `SnapshotSource.fetch()` runs in its own try/catch — success joins
+   this tick's `snapshots` array (and its `freshness()` joins
+   `freshness`); failure becomes a `degradations` entry with `since`
+   carried forward. No window is passed — snapshots are current-value
+   by definition.
+3. **Normalize.** Each raw record is parsed against the adapter's own
    zod schema and mapped to a `LifecycleEvent` (one `Artifact` + its
    `Observation[]`). Schema drift throws loudly here, which becomes that
    source's degradation — not a silently wrong board.
-3. **Merge + fold** (`agent/sources/merge.ts`). `mergeEvents()` dedupes
+4. **Merge + fold** (`agent/sources/merge.ts`). `mergeEvents()` dedupes
    observations across sources by canonical artifact URI
    (`pr:owner/repo#N`) under a priority list (`["lectio", "github"]`)
    with one override: **a hard observation always replaces a soft one**,
@@ -174,14 +225,31 @@ only that it's honest about which it's asserting.
    artifact's full observation history to a single lifecycle state —
    see [the worked example](#worked-example-one-pr-through-the-pipeline)
    below for the exact rule order.
-4. **Decide materiality.** If no artifact folded to `needs_you` or
-   `active`, the tick is a **quiet tick**: `runTick` writes a templated
-   board directly (`tick_status: "all_clear"` or `"degraded"` if any
-   source failed) and returns without ever invoking the LLM.
-5. **Material tick.** Otherwise, `runTick` calls `invokeAgent()` (built
-   by `createInvokeAgent` in `agent/lib/invoke-agent.ts`), which
-   `receive()`s the merged material into the internal tick channel. The
-   Haiku agent, guided by `agent/instructions.md` and the
+5. **Decide materiality — three-way.** `runTick` computes the material
+   set and `computeMaterialHash(material)` — sorted
+   `(artifact_uri, state, observation-set-identity)` tuples, SHA-256,
+   where the observation-set identity covers every observation's
+   `(at, type)`, not just the latest timestamp (the tick is stateless
+   and re-fetches the whole window every time, so a new observation
+   isn't guaranteed to advance the max timestamp). Empty
+   set → **all_clear**: templated board, zero LLM. Hash equal to the
+   previous board's `material_hash` (and the previous board was not an
+   agent-fallback board — a `degradations` entry with source `"agent"`
+   means the agent is retried so summaries recover after an outage) →
+   **material_unchanged**: a deterministic board with fresh
+   `generated_at`/window/freshness/degradations/snapshots, `prs`
+   rebuilt from this tick's own fold with only the LLM-authored
+   `summary` carried over per `artifact_uri`, zero LLM. Otherwise →
+   **material**, today's agent path; after the agent's board passes the
+   freshness check, `runTick` rewrites it once with the
+   runtime-authoritative `snapshots` + `material_hash` overlaid (the
+   model is never trusted for either field — same principle as the
+   board tool's `generated_at` stamp).
+6. **Material tick.** In the `material` case, `runTick` calls
+   `invokeAgent()` (built by `createInvokeAgent` in
+   `agent/lib/invoke-agent.ts`), which `receive()`s the merged material
+   into the internal tick channel. The Haiku agent, guided by
+   `agent/instructions.md` and the
    [`pr-board` skill](../agent/skills/pr-board/SKILL.md), triages and
    summarizes, then calls the `board` tool exactly once. `runTick`
    re-reads the board after the agent's turn settles; if it's not fresh
@@ -251,20 +319,31 @@ GitHub's backstop query catches will surface even if you've since
 scrolled past it in your own head; the system has no notion of "you
 already saw this on the board," only "this is still true."
 
-### Why the zero-LLM-call short-circuit
+### Why the zero-LLM-call short-circuits (all-clear and material_unchanged)
 
-Every 4-hour tick invokes both sources regardless of whether anything
+Every tick invokes both sources regardless of whether anything
 changed — that fetch/merge/fold work is cheap and deterministic. What's
 *not* cheap, and not deterministic, is an LLM call. `runTick`'s
-materiality check (step 4 above) is a plain boolean over the folded
+materiality check (step 5 above) is a plain boolean over the folded
 states: any artifact at `needs_you` or `active`? If not, the tick
 writes a templated `all_clear` (or `degraded`, if a source failed but
 nothing material surfaced anyway) board via `toBoardPr()` and returns —
 no model invocation, no token cost, no possibility of the LLM
 hallucinating activity that didn't happen on a quiet tick. This also
-means the *majority* of ticks in a typical week (most 4-hour windows on
-a repo you're not actively getting reviewed on) cost nothing beyond two
-API calls.
+means the *majority* of ticks in a typical week (most windows on a repo
+you're not actively getting reviewed on) cost nothing beyond two API
+calls.
+
+The three-way outcome extends this: at the 5-minute default cadence, a
+still-open PR awaiting your reply would otherwise re-pay the LLM cost
+to re-summarize the same state ~96–288 times a day. `material_hash`
+lives *on the board itself* — `runTick` already reads the previous
+board for `degradations.since` carry-forward, and the comparison reuses
+that read. This preserves statelessness: every tick still re-derives
+the full material set from scratch; the hash only decides whether
+re-summarizing it is worth an LLM call. Losing the board (or a
+pre-migration board with no hash) costs one redundant LLM call, not
+correctness.
 
 ## Worked example: one PR through the pipeline
 

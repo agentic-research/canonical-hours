@@ -2,24 +2,26 @@
 
 canonical-hours answers one recurring question — "how are my PRs, and
 does anything need me?" — on a schedule, without you asking. It's an
-[eve.dev](https://eve.dev) agent that ticks every 4 hours, pulls your
+[eve.dev](https://eve.dev) agent that ticks on a configurable cron
+(default: every 5 minutes — see `canonical-hours.toml`), pulls your
 authored-PR activity from GitHub and from
 [lectio](../lectio) (an observational memory server), folds it into a
-short status board, and serves that board over HTTP. You poll it; it
-never pushes.
+short status board — alongside current-value snapshots like the
+weather — and serves that board over HTTP. You poll it; it never
+pushes.
 
 It's a port of an interactive Claude Code skill
 ([`pr-board`](agent/skills/pr-board/SKILL.md)) into a standing agent —
 same question, but answered continuously instead of only when you ask.
 
 ```sh
-cp .env.example .env    # fill in LECTIO_URL/TOKEN, GITHUB_TOKEN, ANTHROPIC_API_KEY
+cp .env.example .env    # fill in LECTIO_URL/TOKEN, GITHUB_TOKEN, ANTHROPIC_API_KEY (+ optional WEATHER_API_KEY)
 pnpm install
 pnpm dev                # eve dev — runs the agent locally
 ```
 
-With `eve dev` running, fire a tick manually (the schedule's 4-hour cron
-never fires in dev) and read the board back:
+With `eve dev` running, fire a tick manually (the schedule's cron never
+fires in dev) and read the board back:
 
 ```sh
 curl -X POST http://127.0.0.1:2000/eve/v1/dev/schedules/pr-board
@@ -46,6 +48,21 @@ something actually needs attention, hands the material off to a Haiku
 model to triage and summarize. A quiet tick costs zero LLM calls. The
 board is written atomically so a poll never sees a half-written file.
 
+Two generalizations sit on top of that pipeline. First, the tick
+outcome is three-way: `all_clear` (nothing material — templated board,
+zero LLM calls), `material_unchanged` (the material set is identical to
+the last board's `material_hash` — the board is refreshed
+deterministically, prior LLM summaries carried over, still zero LLM
+calls), and `material` (the set actually changed — Haiku triages). The
+three-way tick is what makes the 5-minute default cadence affordable.
+Second, the board carries **snapshot sources** — current-value readings
+(v1: weather, via `WEATHER_API_KEY` + a `[weather]` location in
+`canonical-hours.toml`) with no lifecycle and no LLM involvement,
+fetched every tick and attached to whichever board gets written. Cadence
+and the weather location live in the committed, non-secret
+`canonical-hours.toml`; a missing file means defaults (5-minute cron, no
+weather), a malformed one fails the boot loudly.
+
 Full design — the hard/soft classification split, why the tick is
 stateless instead of cursor-based, the zero-LLM-call short-circuit, and
 a worked example tracing one PR through the whole pipeline — is in
@@ -54,11 +71,16 @@ a worked example tracing one PR through the whole pipeline — is in
 ## Repo map
 
 - `agent/sources/` — the `Source` protocol and the two adapters
-  (`lectio.ts`, `github.ts`), plus `merge.ts` (dedupe + fold logic).
+  (`lectio.ts`, `github.ts`), plus `merge.ts` (dedupe + fold logic) and
+  the `SnapshotSource` protocol with its weather adapter (`snapshot.ts`,
+  `weather.ts`).
 - `agent/lib/board.ts`, `agent/tools/board.ts` — the board's zod schema,
   markdown renderer, and atomic writer.
 - `agent/lib/tick.ts`, `agent/schedules/pr-board.ts`,
   `agent/channels/{tick,board}.ts` — the scheduled tick and its wiring.
+- `canonical-hours.toml`, `agent/lib/config.ts` — committed non-secret
+  config (tick cron, weather location) and its loader; secrets stay in
+  `.env`.
 - `agent/instructions.md`, `agent/skills/pr-board/SKILL.md` — the
   agent's behavioral prose (posture, tick procedure, triage rules).
 - `docs/eve-api-notes.md`, `docs/lectio-api-notes.md` — implementation
