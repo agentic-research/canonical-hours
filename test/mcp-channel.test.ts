@@ -6,6 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerGetBoardTool, registerTriggerTickTool } from "../agent/channels/mcp";
+import mcpChannel from "../agent/channels/mcp";
 import { Board, BoardSchema, renderBoardMd, writeBoardAtomic } from "../agent/lib/board";
 import { runTick, _resetTickGuardForTests } from "../agent/lib/tick";
 import type { InvokeAgentRuntime } from "../agent/lib/invoke-agent";
@@ -180,5 +181,74 @@ describe("trigger_tick tool", () => {
     expect(result.isError).toBe(true);
     const content = result.content as Array<{ type: string; text: string }>;
     expect(content[0].text).toMatch(/LECTIO_URL/);
+  });
+});
+
+/** Pull an HTTP route handler off the channel's public `routes` (eve's Channel type). */
+function routeHandler(method: "GET" | "POST"): (req: Request, args: unknown) => Promise<Response> {
+  const route = mcpChannel.routes.find((r) => r.method === method && r.path === "/mcp");
+  if (!route) throw new Error(`no ${method} /mcp route`);
+  return route.handler as (req: Request, args: unknown) => Promise<Response>;
+}
+
+/** Minimal RouteHandlerArgs stand-in: only `receive` is ever consumed, and only on the material path. */
+function stubRouteArgs(): unknown {
+  return {
+    send: async () => {
+      throw new Error("send not expected");
+    },
+    cancel: async () => {
+      throw new Error("cancel not expected");
+    },
+    getSession: () => {
+      throw new Error("getSession not expected");
+    },
+    receive: async () => {
+      throw new Error("receive not expected in these tests");
+    },
+    params: {},
+    waitUntil: () => {},
+    requestIp: null,
+  };
+}
+
+describe("mcp channel routes", () => {
+  it("GET /mcp returns 405 (no SSE stream in stateless JSON mode)", async () => {
+    const response = await routeHandler("GET")(
+      new Request("http://localhost/mcp"),
+      stubRouteArgs(),
+    );
+    expect(response.status).toBe(405);
+  });
+
+  it("POST /mcp answers a JSON-RPC initialize with a JSON response", async () => {
+    const response = await routeHandler("POST")(
+      new Request("http://localhost/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "probe", version: "0.0.0" },
+          },
+        }),
+      }),
+      stubRouteArgs(),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    const body = (await response.json()) as {
+      jsonrpc: string;
+      result: { serverInfo: { name: string } };
+    };
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.result.serverInfo.name).toBe("canonical-hours");
   });
 });

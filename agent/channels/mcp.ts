@@ -1,5 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
+import { defineChannel, GET, POST } from "eve/channels";
+import type { SessionAuthContext } from "eve/context";
 import { BoardSchema, readBoard, renderBoardMd } from "../lib/board";
 import { prBoardTick } from "../lib/tick-entry";
 import type { TickResult } from "../lib/tick";
@@ -94,3 +97,50 @@ export function registerTriggerTickTool(
     },
   );
 }
+
+/**
+ * Hand-built app principal (docs/eve-api-notes.md fact 2 + eve's
+ * SessionAuthContext): route handlers get `receive` in their args but NOT
+ * `appAuth` (that exists only on ScheduleHandlerArgs). Verify live during
+ * implementation that eve accepts this; if a build rejects it, the failure
+ * is graceful-and-visible by design — appAuth is only consumed on the
+ * material path, whose throw runTick already absorbs into
+ * retry-then-degraded_fallback (spec §2.1/§4).
+ */
+const appAuth = {
+  attributes: {},
+  authenticator: "app",
+  principalId: "eve:app",
+  principalType: "runtime",
+} satisfies SessionAuthContext;
+
+/** Both tools on a fresh McpServer, production wiring (real prBoardTick). */
+export function buildMcpServer(runtime: InvokeAgentRuntime): McpServer {
+  const server = new McpServer({ name: "canonical-hours", version: "0.1.0" });
+  registerGetBoardTool(server);
+  registerTriggerTickTool(server, runtime);
+  return server;
+}
+
+/**
+ * Streamable-HTTP MCP endpoint at /mcp (extensionless — dotted route paths
+ * fail the Nitro build, docs/eve-api-notes.md fact 3). Per-request server +
+ * stateless JSON transport is the SDK's documented stateless pattern; the
+ * tick state it touches (`running` flag, board/ dir) is module-level in
+ * agent/lib/, shared correctly across requests via Node's module cache.
+ */
+export default defineChannel({
+  routes: [
+    POST("/mcp", async (req, args) => {
+      const server = buildMcpServer({ receive: args.receive, appAuth });
+      const transport = new WebStandardStreamableHTTPServerTransport({
+        sessionIdGenerator: undefined, // stateless — no MCP session affinity
+        enableJsonResponse: true, // plain JSON responses; neither tool streams
+      });
+      await server.connect(transport);
+      return transport.handleRequest(req);
+    }),
+    // No SSE stream to offer in stateless JSON mode — deliberate, not an omission.
+    GET("/mcp", async () => new Response(null, { status: 405 })),
+  ],
+});
