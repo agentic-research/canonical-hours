@@ -109,12 +109,12 @@
     {
       "rule_id": "dead_code",
       "source_id": "agent/sources/github.ts",
-      "count": 4
+      "count": 2
     },
     {
       "rule_id": "dead_code",
       "source_id": "agent/sources/lectio.ts",
-      "count": 4
+      "count": 2
     },
     {
       "rule_id": "dead_code",
@@ -123,17 +123,17 @@
     },
     {
       "rule_id": "dead_code",
-      "source_id": "agent/sources/snapshot.ts",
-      "count": 2
-    },
-    {
-      "rule_id": "dead_code",
       "source_id": "agent/sources/source.ts",
-      "count": 7
+      "count": 6
     },
     {
       "rule_id": "dead_code",
-      "source_id": "agent/sources/weather.ts",
+      "source_id": "packages/core/src/fetch-window.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "packages/core/src/snapshot.ts",
       "count": 2
     },
     {
@@ -142,34 +142,9 @@
       "count": 1
     },
     {
-      "rule_id": "dead_code",
-      "source_id": "test/snapshot.test.ts",
-      "count": 1
-    },
-    {
-      "rule_id": "duplicate_definitions",
-      "source_id": "agent/sources/github.ts",
-      "count": 4
-    },
-    {
-      "rule_id": "duplicate_definitions",
-      "source_id": "agent/sources/lectio.ts",
-      "count": 4
-    },
-    {
-      "rule_id": "duplicate_definitions",
-      "source_id": "agent/sources/weather.ts",
-      "count": 3
-    },
-    {
       "rule_id": "duplicate_definitions",
       "source_id": "test/github-source.test.ts",
       "count": 2
-    },
-    {
-      "rule_id": "duplicate_definitions",
-      "source_id": "test/mcp-channel.test.ts",
-      "count": 6
     },
     {
       "rule_id": "duplicate_definitions",
@@ -178,18 +153,68 @@
     },
     {
       "rule_id": "duplicate_definitions",
-      "source_id": "test/snapshot.test.ts",
-      "count": 2
-    },
-    {
-      "rule_id": "duplicate_definitions",
       "source_id": "test/tick.test.ts",
-      "count": 14
+      "count": 2
     },
     {
       "rule_id": "duplicate_definitions",
       "source_id": "test/weather-source.test.ts",
       "count": 2
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "agent/lib/tick.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "agent/sources/github.ts",
+      "count": 2
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "agent/sources/lectio.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "agent/sources/merge.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "agent/sources/weather.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "test/board-tool.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "test/board.test.ts",
+      "count": 3
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "test/github-source.test.ts",
+      "count": 2
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "test/lectio-source.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "test/mcp-channel.test.ts",
+      "count": 10
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "test/tick.test.ts",
+      "count": 14
     },
     {
       "rule_id": "god_file",

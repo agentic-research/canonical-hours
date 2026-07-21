@@ -72,3 +72,20 @@ tasks:
     desc: "The exact gate CI should run once a workflow is added. Currently identical to `check` — smells is opt-in until docs/smell-gate.md's CI wiring lands."
     cmds:
       - task: check
+
+  install-hooks:
+    desc: "Symlink scripts/git-hooks/* into .git/hooks/. Run once per clone so the smell gate (task smells) fires automatically before every commit."
+    cmds:
+      - |
+        set -e
+        HOOK_DIR="$(git rev-parse --git-dir)/hooks"
+        for hook in scripts/git-hooks/*; do
+          name="$(basename "$hook")"
+          target="$HOOK_DIR/$name"
+          if [ -e "$target" ] && [ ! -L "$target" ]; then
+            echo "▸ $target exists and is NOT a symlink — back it up + re-run, or move aside manually."
+            exit 1
+          fi
+          ln -sf "$(pwd)/$hook" "$target"
+          echo "▸ wired $target -> $hook"
+        done

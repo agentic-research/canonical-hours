@@ -136,5 +136,6 @@ task test         # vitest run
 task typecheck    # tsc --noEmit
 task check        # typecheck + test — the fast inner-loop gate
 task smells       # structural smell gate, ratcheted against docs/smell-baseline.json
+task install-hooks  # once per clone: wires task smells into .git/hooks/pre-commit
 task --list       # see everything, including deps/watch/smells:baseline
 ```
