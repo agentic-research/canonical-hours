@@ -15,5 +15,24 @@ if ! command -v mache >/dev/null 2>&1; then
   exit 0
 fi
 
-echo "▸ pre-commit: running task smells..."
+# Scan only the tree that's actually about to be committed, not unrelated
+# unstaged/WIP changes sitting elsewhere (canonical-hours-5a1165). A whole-
+# working-tree scan let an unrelated, in-progress edit (e.g. a concurrent
+# agent dispatch touching a different file) block a clean, unrelated commit
+# whose own staged content introduced no new debt. `git stash --keep-index`
+# temporarily removes everything NOT staged, leaving the working tree as
+# exactly "what HEAD would look like after this commit" for the scan, then
+# restores the unstaged/untracked state afterward regardless of outcome.
+STASH_COUNT_BEFORE=$(git stash list | wc -l | tr -d ' ')
+git stash push --keep-index --include-untracked -q -m "pre-commit-smell-scan" || true
+STASH_COUNT_AFTER=$(git stash list | wc -l | tr -d ' ')
+
+cleanup() {
+  if [ "$STASH_COUNT_AFTER" != "$STASH_COUNT_BEFORE" ]; then
+    git stash pop -q
+  fi
+}
+trap cleanup EXIT INT TERM
+
+echo "▸ pre-commit: running task smells (staged tree only)..."
 task smells
