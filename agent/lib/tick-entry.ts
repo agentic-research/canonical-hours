@@ -37,7 +37,7 @@ export async function prBoardTick(runtime: InvokeAgentRuntime): Promise<TickResu
   const result = await runTick({
     sources: [
       new LectioSource(createMcpLectioCall(url, token)),
-      new GithubSource(process.env.GITHUB_TOKEN ?? ""),
+      new GithubSource(process.env.GITHUB_TOKEN ?? "", fetch, () => new Date(), config.github.min_remaining),
     ],
     priority: ["lectio", "github"],
     snapshotSources,

@@ -109,7 +109,7 @@
     {
       "rule_id": "dead_code",
       "source_id": "agent/sources/github.ts",
-      "count": 2
+      "count": 4
     },
     {
       "rule_id": "dead_code",

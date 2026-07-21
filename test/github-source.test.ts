@@ -74,4 +74,33 @@ describe("GithubSource", () => {
     const rec = (raws as Array<{ pr: { number: number }; checkRollup: unknown[] }>).find((r) => r.pr.number === 42)!;
     expect(rec.checkRollup).toEqual([]);
   });
+
+  it("sleeps until rateLimit.resetAt when remaining drops below min_remaining, then continues", async () => {
+    const sleeps: number[] = [];
+    const fakeSleep = async (ms: number) => { sleeps.push(ms); };
+    const now = () => new Date("2026-07-21T12:00:00Z");
+    const lowLimitThenNormal: Array<[string, unknown]> = [
+      ["updated:>=", {
+        data: {
+          rateLimit: { remaining: 50, resetAt: "2026-07-21T12:05:00Z" }, // below min_remaining=200
+          viewer: { login: "jamestexas" },
+          search: { nodes: [] },
+        },
+      }],
+      ["review:changes_requested", fx("search_backstop")],
+    ];
+    const source = new GithubSource("t", fakeFetch(lowLimitThenNormal), now, 200, fakeSleep);
+    await source.fetch(window);
+    expect(sleeps).toHaveLength(1);
+    // resetAt (12:05:00) - now (12:00:00) = 5 minutes = 300_000ms
+    expect(sleeps[0]).toBe(300_000);
+  });
+
+  it("does not sleep when remaining stays above min_remaining", async () => {
+    const sleeps: number[] = [];
+    const fakeSleep = async (ms: number) => { sleeps.push(ms); };
+    const source = new GithubSource("t", fakeFetch(routes), () => new Date(), 200, fakeSleep);
+    await source.fetch(window);
+    expect(sleeps).toHaveLength(0);
+  });
 });

@@ -142,9 +142,11 @@ export class GithubSource implements Source {
     private token: string,
     private fetchImpl: typeof fetch = fetch,
     private now: () => Date = () => new Date(),
+    private minRemaining: number = 200,
+    private sleepImpl: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
   ) {}
 
-  /** POST one GraphQL query. Rate-limit backoff (Task 3) wraps this. */
+  /** POST one GraphQL query, sleeping until rateLimit.resetAt if remaining drops below minRemaining. */
   private async graphqlRequest(query: string, variables: Record<string, unknown>): Promise<GqlSearchResponse> {
     const res = await this.fetchImpl("https://api.github.com/graphql", {
       method: "POST",
@@ -157,6 +159,10 @@ export class GithubSource implements Source {
     if (!res.ok) throw new Error(`github graphql ${res.status}`);
     const json = (await res.json()) as GqlSearchResponse;
     if (json.errors?.length) throw new Error(`github graphql errors: ${json.errors.map((e) => e.message).join("; ")}`);
+    if (json.data.rateLimit.remaining < this.minRemaining) {
+      const waitMs = new Date(json.data.rateLimit.resetAt).getTime() - this.now().getTime();
+      if (waitMs > 0) await this.sleepImpl(waitMs);
+    }
     return json;
   }
 
