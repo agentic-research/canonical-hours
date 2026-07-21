@@ -27,7 +27,18 @@
           "comments": { "nodes": [] },
           "commits": {
             "nodes": [
-              { "commit": { "statusCheckRollup": null } }
+              {
+                "commit": {
+                  "statusCheckRollup": {
+                    "contexts": {
+                      "nodes": [
+                        { "__typename": "CheckRun", "name": "ci-required", "conclusion": "FAILURE" },
+                        { "__typename": "CheckRun", "name": "ci-optional", "conclusion": "FAILURE" }
+                      ]
+                    }
+                  }
+                }
+              }
             ]
           }
         }

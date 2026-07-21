@@ -12,6 +12,7 @@ import type { FetchWindow } from "@canonical-hours/core";
 export const CheckRollupEntrySchema = z.looseObject({
   name: z.string(),
   failing: z.boolean(),
+  required: z.boolean(),
 });
 export type CheckRollupEntry = z.infer<typeof CheckRollupEntrySchema>;
 
@@ -83,14 +84,18 @@ interface GqlSearchResponse {
 const FAILING_CHECK_CONCLUSIONS = new Set(["FAILURE", "TIMED_OUT", "ACTION_REQUIRED"]);
 const FAILING_STATUS_STATES = new Set(["FAILURE", "ERROR"]);
 
-function normalizeCheckRollup(rollup: GqlPullRequest["commits"]["nodes"][number]["commit"]["statusCheckRollup"]): CheckRollupEntry[] {
+function normalizeCheckRollup(
+  rollup: GqlPullRequest["commits"]["nodes"][number]["commit"]["statusCheckRollup"],
+  requiredNames: Set<string> = new Set(),
+): CheckRollupEntry[] {
   if (!rollup) return [];
   return rollup.contexts.nodes.map((ctx) => {
-    if (ctx.__typename === "CheckRun") {
-      return { name: ctx.name as string, failing: FAILING_CHECK_CONCLUSIONS.has(ctx.conclusion as string) };
-    }
-    // StatusContext
-    return { name: ctx.context as string, failing: FAILING_STATUS_STATES.has(ctx.state as string) };
+    const name = (ctx.__typename === "CheckRun" ? ctx.name : ctx.context) as string;
+    const failing =
+      ctx.__typename === "CheckRun"
+        ? FAILING_CHECK_CONCLUSIONS.has(ctx.conclusion as string)
+        : FAILING_STATUS_STATES.has(ctx.state as string);
+    return { name, failing, required: requiredNames.has(name) };
   });
 }
 
@@ -126,6 +131,46 @@ const SEARCH_QUERY = `
     }
   }
 `;
+
+interface GqlRequiredCheckResponse {
+  data: { rateLimit: { remaining: number; resetAt: string } } & Record<
+    string,
+    { commits: { nodes: Array<{ commit: { statusCheckRollup: { contexts: { nodes: Array<{ __typename: string; name?: string; context?: string; isRequired: boolean }> } } | null } }> } }
+  >;
+  errors?: Array<{ message: string }>;
+}
+
+/**
+ * Aliased, literal-number-per-PR query — isRequired cannot be batched inside
+ * `search` (verified live). Requests `rateLimit` too: graphqlRequest's
+ * backoff check (Task 3) reads json.data.rateLimit unconditionally, on
+ * every request this method makes, not just the primary search ones.
+ */
+function buildRequiredCheckQuery(prs: Array<{ owner: string; repo: string; number: number }>): string {
+  const blocks = prs.map(
+    ({ owner, repo, number }) => `
+      pr${number}: repository(owner: "${owner}", name: "${repo}") {
+        pullRequest(number: ${number}) {
+          commits(last: 1) {
+            nodes {
+              commit {
+                statusCheckRollup {
+                  contexts(first: 50) {
+                    nodes {
+                      __typename
+                      ... on CheckRun { name isRequired(pullRequestNumber: ${number}) }
+                      ... on StatusContext { context isRequired(pullRequestNumber: ${number}) }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }`,
+  );
+  return `query { rateLimit { remaining resetAt }${blocks.join("\n")}\n}`;
+}
 
 /**
  * GitHub is the sole hard-verdict source (design doc: lectio can observe
@@ -186,6 +231,32 @@ export class GithubSource implements Source {
       else all.set(key(node), { node, backstop: true });
     }
 
+    // Any failing check (regardless of required-ness — we don't know yet) needs isRequired resolved.
+    const needsRequiredCheck: Array<{ owner: string; repo: string; number: number }> = [];
+    for (const { node } of all.values()) {
+      const rollup = node.commits.nodes[0]?.commit.statusCheckRollup;
+      const hasFailure = rollup?.contexts.nodes.some((ctx) =>
+        ctx.__typename === "CheckRun"
+          ? FAILING_CHECK_CONCLUSIONS.has(ctx.conclusion as string)
+          : FAILING_STATUS_STATES.has(ctx.state as string),
+      );
+      if (hasFailure) needsRequiredCheck.push({ owner: node.repository.owner.login, repo: node.repository.name, number: node.number });
+    }
+
+    const requiredByPr = new Map<number, Set<string>>();
+    if (needsRequiredCheck.length > 0) {
+      const res = await this.graphqlRequest(buildRequiredCheckQuery(needsRequiredCheck), {});
+      const withRequired = res as unknown as GqlRequiredCheckResponse;
+      for (const { number } of needsRequiredCheck) {
+        const entry = withRequired.data[`pr${number}`];
+        const names = new Set<string>();
+        for (const ctx of entry?.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []) {
+          if (ctx.isRequired) names.add((ctx.__typename === "CheckRun" ? ctx.name : ctx.context) as string);
+        }
+        requiredByPr.set(number, names);
+      }
+    }
+
     const login = this.login ?? "";
     return [...all.values()].map(({ node, backstop: isBackstop }) => ({
       pr: {
@@ -199,7 +270,7 @@ export class GithubSource implements Source {
       },
       reviews: node.reviews.nodes.map((r) => ({ author: r.author?.login ?? "", state: r.state, submittedAt: r.submittedAt, body: r.body, url: r.url })),
       comments: node.comments.nodes.map((c) => ({ author: c.author?.login ?? "", createdAt: c.createdAt, body: c.body, url: c.url })),
-      checkRollup: normalizeCheckRollup(node.commits.nodes[0]?.commit.statusCheckRollup ?? null),
+      checkRollup: normalizeCheckRollup(node.commits.nodes[0]?.commit.statusCheckRollup ?? null, requiredByPr.get(node.number) ?? new Set()),
       backstop: isBackstop,
       viewer: login,
     }));
@@ -245,7 +316,22 @@ export class GithubSource implements Source {
     } else if (rec.pr.state === "CLOSED" && rec.pr.closedAt) {
       observations.push({ artifact_uri: artifact.uri, at: rec.pr.closedAt, author: "", type: "close", payload: {}, classification: "hard" });
     }
-    return { artifact, observations, state_hint: rec.backstop ? "needs_you" : undefined };
+    const failingRequired = rec.checkRollup.filter((c) => c.failing && c.required);
+    for (const check of failingRequired) {
+      observations.push({
+        artifact_uri: artifact.uri,
+        at: rec.pr.mergedAt ?? rec.pr.closedAt ?? new Date().toISOString(),
+        author: "",
+        type: "check_failed",
+        payload: { name: check.name },
+        classification: "hard",
+      });
+    }
+    return {
+      artifact,
+      observations,
+      state_hint: rec.backstop || failingRequired.length > 0 ? "needs_you" : undefined,
+    };
   }
 
   async freshness(): Promise<string | null> {
