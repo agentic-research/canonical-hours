@@ -102,10 +102,15 @@ transport and tenancy details.
 
 ## Repo map
 
+- `packages/core` (`@canonical-hours/core`, a pnpm workspace package) —
+  the genuinely generic, proven-by-a-second-consumer pieces:
+  `SnapshotSource`/`SnapshotValue` and `FetchWindow`. `agent/sources/source.ts`'s
+  `Source`/`Artifact` protocol stays local — it's still PR-shaped v1,
+  not yet proven generic beyond PR board.
 - `agent/sources/` — the `Source` protocol and the two adapters
-  (`lectio.ts`, `github.ts`), plus `merge.ts` (dedupe + fold logic) and
-  the `SnapshotSource` protocol with its weather adapter (`snapshot.ts`,
-  `weather.ts`).
+  (`lectio.ts`, GraphQL-based `github.ts`), plus `merge.ts` (dedupe +
+  fold logic) and the weather adapter (`weather.ts`, implements
+  `packages/core`'s `SnapshotSource`).
 - `agent/lib/board.ts`, `agent/tools/board.ts` — the board's zod schema,
   markdown renderer, and atomic writer.
 - `agent/lib/tick.ts`, `agent/schedules/pr-board.ts`,
@@ -114,8 +119,8 @@ transport and tenancy details.
   `trigger_tick`) and its registry document, for cloister and other MCP
   clients.
 - `canonical-hours.toml`, `agent/lib/config.ts` — committed non-secret
-  config (tick cron, weather location) and its loader; secrets stay in
-  `.env`.
+  config (tick cron, weather location, GitHub GraphQL rate-limit
+  backoff threshold) and its loader; secrets stay in `.env`.
 - `agent/instructions.md`, `agent/skills/pr-board/SKILL.md` — the
   agent's behavioral prose (posture, tick procedure, triage rules).
 - `docs/eve-api-notes.md`, `docs/lectio-api-notes.md` — implementation

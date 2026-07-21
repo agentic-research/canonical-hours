@@ -396,7 +396,7 @@ constant function: every lectio-sourced observation is `soft`, and
 `mapToLifecycleEvent()` never claims a state stronger than `"active"`
 (never `needs_you`, never `resolved`) on lectio's word alone.
 `agent/sources/github.ts`, reading the same event straight from
-GitHub's REST API (`GET /pulls/{n}/reviews`, which *does* return
+GitHub's GraphQL API (`PullRequest.reviews`, which *does* return
 `state`), classifies every observation it emits — review verdicts,
 comments, merges, closes — as `hard`. The full citation trail (Rust
 line numbers, the live call's raw JSON) is in
@@ -410,6 +410,50 @@ one at merge time, even though lectio is earlier in the source
 priority list for *deduplication* purposes. Priority order picks a
 winner among equal-classification duplicates; classification always
 wins the state question.
+
+### GitHub: GraphQL, required-check visibility, and configurable backoff
+
+`agent/sources/github.ts` speaks GraphQL, not REST. `fetch()` issues a
+small, bounded number of `POST https://api.github.com/graphql` requests
+per tick — 2 in the common case (the windowed search and the backstop
+search, each batching `viewer{login}`, the search itself, and every
+matched PR's reviews/comments/check-conclusions/`rateLimit` into one
+round trip), plus one *conditional* third request, only when at least
+one PR has an actual failing check, resolving which of those checks
+are branch-protection-*required*. That third request is unavoidable:
+GitHub's GraphQL schema requires `CheckRun.isRequired`/
+`StatusContext.isRequired` to take an explicit `pullRequestNumber`
+argument — it cannot be resolved inside the batched `search` query
+even when nested under a specific `PullRequest` node, confirmed by
+querying GitHub's real schema directly. The workaround is an aliased,
+literal-PR-number-per-block second query. That aliasing is keyed by
+**array index** (`pr0`, `pr1`, ...), not by PR number — this source
+fetches the viewer's own PRs across every repo they've touched, where
+identical PR numbers across different repos are routine (every repo
+has a `#1`), and aliasing by number alone would emit a duplicate
+GraphQL alias whenever two same-numbered PRs from different repos
+both had a failing check in one tick, which GitHub's API rejects
+outright, failing the whole request.
+
+A failing **required** check surfaces the same way the existing
+"standing changes_requested" backstop already does: `mapToLifecycleEvent`
+sets `state_hint: "needs_you"`, reusing the exact mechanism rather than
+adding a new `foldState` branch (which stays completely untouched by
+any of this). It also emits a `check_failed` observation (hard
+classification, carrying the check name) purely so the board shows
+*why* — a line item visible in `new_items`/summarizable by the LLM,
+even though the hint, not the observation type, drives the state
+transition. Only *required* checks count, and only a concluded
+*failure* (not merely-pending) — an optional linter failing shouldn't
+false-positive as blocking, and "still running" isn't "broken."
+
+Rate-limit handling is now driven by GraphQL's `rateLimit{ remaining,
+resetAt }`, present on every response, rather than REST's occasional
+403/429 headers. `canonical-hours.toml`'s `[github]` table sets
+`min_remaining` (default 200): when a response's `rateLimit.remaining`
+drops below it, the source sleeps until `rateLimit.resetAt` before its
+next call in that tick, then continues — same "wait, don't fail the
+tick" shape as before, just with richer, always-present telemetry.
 
 ### Why stateless: a 72h window, not a cursor
 
@@ -471,7 +515,7 @@ Trace a single PR, `owner/repo#123`, through one tick where Mark left a
    `updated:>=` windowed search (and, since it has a standing
    `changes_requested`, in the backstop search too — the record is
    flagged `backstop: true`). `GithubSource.mapToLifecycleEvent()` reads
-   `GET /pulls/123/reviews`, sees Mark's review with `state:
+   the GraphQL `reviews` connection, sees Mark's review with `state:
    "CHANGES_REQUESTED"`, and emits an `Observation`:
    ```
    { type: "review_changes_requested", author: "mark",
