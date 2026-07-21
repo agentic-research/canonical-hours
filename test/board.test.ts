@@ -7,13 +7,19 @@ import {
   BoardSchema,
   readBoard,
   renderBoardMd,
-  sortBoardPrs,
+  sortBoardItems,
   writeBoardAtomic,
 } from "../agent/lib/board";
 
-const pr = (state: Board["prs"][number]["state"], number: number): Board["prs"][number] => ({
-  artifact_uri: `pr:o/r#${number}`, repo: "o/r", number, title: `PR ${number}`,
+const prItem = (state: Board["items"][number]["state"], number: number): Extract<Board["items"][number], { kind: "pr" }> => ({
+  kind: "pr", artifact_uri: `pr:o/r#${number}`, repo: "o/r", number, title: `PR ${number}`,
   url: `https://github.com/o/r/pull/${number}`, state,
+  reason: "test", new_items: [],
+});
+
+const issueItem = (state: Board["items"][number]["state"], identifier: string): Extract<Board["items"][number], { kind: "issue" }> => ({
+  kind: "issue", artifact_uri: `issue:art/${identifier.toLowerCase()}`, team: "ART", identifier,
+  title: `Issue ${identifier}`, url: `https://linear.app/team/issue/${identifier}`, state,
   reason: "test", new_items: [],
 });
 
@@ -23,24 +29,33 @@ const board: Board = {
   window: { since: "2026-07-14T08:00:00Z", until: "2026-07-17T08:00:00Z" },
   freshness: [{ source: "lectio", last_advanced_at: "2026-07-17T06:00:00Z" }],
   degradations: [],
-  prs: [pr("resolved", 1), pr("needs_you", 2), pr("opened", 3), pr("active", 4)],
+  items: [prItem("resolved", 1), prItem("needs_you", 2), prItem("opened", 3), prItem("active", 4)],
 };
 
 describe("BoardSchema", () => {
   it("accepts the spec board shape", () => {
     expect(BoardSchema.parse(board)).toBeTruthy();
   });
+  it("accepts a mixed pr/issue items array", () => {
+    const mixed = { ...board, items: [prItem("needs_you", 1), issueItem("needs_you", "ART-1")] };
+    expect(BoardSchema.parse(mixed)).toBeTruthy();
+  });
   it("rejects unknown tick_status", () => {
     expect(() => BoardSchema.parse({ ...board, tick_status: "meh" })).toThrow();
   });
-  it("rejects prs with unknown state", () => {
-    expect(() => BoardSchema.parse({ ...board, prs: [{ ...pr("opened", 1), state: "blocked" }] })).toThrow();
+  it("rejects items with unknown state", () => {
+    expect(() => BoardSchema.parse({ ...board, items: [{ ...prItem("opened", 1), state: "blocked" }] })).toThrow();
+  });
+  it("rejects an issue item missing team/identifier", () => {
+    const { team: _team, identifier: _identifier, ...bad } = issueItem("needs_you", "ART-1");
+    expect(() => BoardSchema.parse({ ...board, items: [bad] })).toThrow();
   });
 });
 
-describe("sortBoardPrs", () => {
-  it("enforces needs_you, active, opened, resolved", () => {
-    expect(sortBoardPrs(board.prs).map((p) => p.state)).toEqual([
+describe("sortBoardItems", () => {
+  it("enforces needs_you, active, opened, resolved across mixed kinds", () => {
+    const mixed = [prItem("resolved", 1), issueItem("needs_you", "ART-1"), prItem("opened", 3), prItem("active", 4)];
+    expect(sortBoardItems(mixed).map((i) => i.state)).toEqual([
       "needs_you", "active", "opened", "resolved",
     ]);
   });
@@ -48,14 +63,27 @@ describe("sortBoardPrs", () => {
 
 describe("renderBoardMd", () => {
   it("renders resolved as a footnote, not a full entry", () => {
-    const md = renderBoardMd({ ...board, prs: sortBoardPrs(board.prs) });
+    const md = renderBoardMd({ ...board, items: sortBoardItems(board.items) });
     expect(md).toContain("## [needs_you] o/r#2");
     expect(md).not.toContain("## [resolved]");
     expect(md).toContain("Resolved: o/r#1");
   });
+  it("renders an issue entry as team/identifier, not repo#number", () => {
+    const md = renderBoardMd({ ...board, items: [issueItem("needs_you", "ART-9")] });
+    expect(md).toContain("## [needs_you] ART/ART-9");
+    expect(md).toContain("https://linear.app/team/issue/ART-9");
+  });
+  it("renders a resolved issue in the footnote by team/identifier", () => {
+    const md = renderBoardMd({ ...board, items: [issueItem("resolved", "ART-9")] });
+    expect(md).toContain("Resolved: ART/ART-9");
+  });
   it("renders an all-clear line when nothing is active", () => {
-    const md = renderBoardMd({ ...board, tick_status: "all_clear", prs: [pr("resolved", 1)] });
+    const md = renderBoardMd({ ...board, tick_status: "all_clear", items: [prItem("resolved", 1)] });
     expect(md).toContain("All clear");
+  });
+  it("title is generic, not PR-specific", () => {
+    expect(renderBoardMd(board)).toContain("# Board");
+    expect(renderBoardMd(board)).not.toContain("# PR Board");
   });
 });
 
@@ -67,8 +95,8 @@ describe("writeBoardAtomic / readBoard", () => {
     expect(files.sort()).toEqual(["board.json", "board.md"]);
     const back = await readBoard(dir);
     expect(back?.generated_at).toBe(board.generated_at);
-    expect(back?.prs[0].state).toBe("needs_you"); // sorted on write
-    expect(await readFile(join(dir, "board.md"), "utf8")).toContain("# PR Board");
+    expect(back?.items[0].state).toBe("needs_you"); // sorted on write
+    expect(await readFile(join(dir, "board.md"), "utf8")).toContain("# Board");
   });
   it("readBoard returns null when no board exists", async () => {
     const dir = await mkdtemp(join(tmpdir(), "board-empty-"));
@@ -83,21 +111,14 @@ describe("writeBoardAtomic / readBoard", () => {
   });
 
   it("never exposes a partial/corrupt board.json to a reader polling during a write", async () => {
-    // Proves the write-temp-then-rename mechanics, not just that the function
-    // ran without throwing: a large second write is raced against a burst of
-    // concurrent readers. If writeBoardAtomic ever wrote board.json in place
-    // (rather than via temp file + rename), a reader could catch it
-    // half-written and fail to JSON.parse — that's the failure this test
-    // would catch that "no temp files left afterward" cannot.
     const dir = await mkdtemp(join(tmpdir(), "board-race-"));
     const bigBoard = (tag: string): Board => ({
       ...board,
       generated_at: tag,
-      prs: Array.from({ length: 4000 }, (_, i) => pr("opened", i)),
+      items: Array.from({ length: 4000 }, (_, i) => prItem("opened", i)),
     });
 
     await writeBoardAtomic(bigBoard("v1"), dir);
-
     const writePromise = writeBoardAtomic(bigBoard("v2"), dir);
 
     const seenTags = new Set<string>();
@@ -106,14 +127,11 @@ describe("writeBoardAtomic / readBoard", () => {
       try {
         raw = await readFile(join(dir, "board.json"), "utf8");
       } catch {
-        return; // ENOENT is the only acceptable failure, and only before the first write ever lands.
+        return;
       }
-      // A torn read (partial temp-write leaking, or a non-atomic in-place
-      // write caught mid-flight) would throw here instead of parsing cleanly.
       const parsed = BoardSchema.parse(JSON.parse(raw));
       seenTags.add(parsed.generated_at);
     };
-    // Fire a burst of concurrent reads while the write is in flight.
     await Promise.all(Array.from({ length: 100 }, () => readOnce()));
     await writePromise;
     await readOnce();
@@ -136,7 +154,6 @@ const snapshot = {
 describe("board schema: snapshots + material_hash", () => {
   it("parses an old-format board.json with neither field (migration guarantee)", async () => {
     const dir = await mkdtemp(join(tmpdir(), "board-old-"));
-    // `board` (top of this file) predates both fields — write it raw, bypassing writeBoardAtomic.
     await writeFile(join(dir, "board.json"), JSON.stringify(board), "utf8");
     const back = await readBoard(dir);
     expect(back).not.toBeNull();

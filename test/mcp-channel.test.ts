@@ -51,8 +51,9 @@ const FIXTURE_BOARD: Board = {
   window: { since: "2026-07-14T08:00:00Z", until: "2026-07-17T08:00:00Z" },
   freshness: [{ source: "lectio", last_advanced_at: "2026-07-17T06:00:00Z" }],
   degradations: [],
-  prs: [
+  items: [
     {
+      kind: "pr",
       artifact_uri: "pr:o/r#1",
       repo: "o/r",
       number: 1,
@@ -91,7 +92,7 @@ describe("get_board tool", () => {
     expect(result.isError).toBeFalsy();
     const sc = result.structuredContent as { board: unknown };
     const parsed = BoardSchema.parse(sc.board);
-    expect(parsed.prs[0].summary).toBe("Mark commented.");
+    expect(parsed.items[0].summary).toBe("Mark commented.");
     const content = result.content as Array<{ type: string; text: string }>;
     expect(content[0].type).toBe("text");
     expect(content[0].text).toBe(renderBoardMd(written));

@@ -8,7 +8,10 @@ import {
 } from "../sources/source";
 import { SnapshotValueSchema } from "@canonical-hours/core";
 
-export const BoardItemSchema = z.object({
+/** One activity entry inside a board item's `new_items` — renamed from the
+ * old top-level `BoardItemSchema` to free that name for the per-artifact
+ * board entry below (the real generalization this schema needed). */
+export const BoardActivitySchema = z.object({
   type: z.string(),
   author: z.string(),
   path: z.string().optional(),
@@ -18,7 +21,8 @@ export const BoardItemSchema = z.object({
   classification: ClassificationSchema,
 });
 
-export const BoardPrSchema = z.object({
+const BoardPrSchema = z.object({
+  kind: z.literal("pr"),
   artifact_uri: z.string(),
   repo: z.string(),
   number: z.number().int(),
@@ -26,10 +30,27 @@ export const BoardPrSchema = z.object({
   url: z.string(),
   state: LifecycleStateSchema,
   reason: z.string(),
-  new_items: z.array(BoardItemSchema),
+  new_items: z.array(BoardActivitySchema),
   summary: z.string().optional(), // Haiku's thread summary; absent on all-clear
   merge_ready: z.boolean().optional(), // absent for non-GitHub artifacts or when unknown
 });
+
+const BoardIssueSchema = z.object({
+  kind: z.literal("issue"),
+  artifact_uri: z.string(),
+  team: z.string(),
+  identifier: z.string(),
+  title: z.string(),
+  url: z.string(),
+  state: LifecycleStateSchema,
+  reason: z.string(),
+  new_items: z.array(BoardActivitySchema),
+  summary: z.string().optional(),
+});
+
+/** A board entry — a PR or a Linear issue, same generalization as ArtifactSchema (source.ts). */
+export const BoardItemSchema = z.discriminatedUnion("kind", [BoardPrSchema, BoardIssueSchema]);
+export type BoardItem = z.infer<typeof BoardItemSchema>;
 
 export const BoardSchema = z.object({
   generated_at: z.string(),
@@ -37,29 +58,28 @@ export const BoardSchema = z.object({
   window: z.object({ since: z.string(), until: z.string() }),
   freshness: z.array(z.object({ source: z.string(), last_advanced_at: z.string().nullable() })),
   degradations: z.array(z.object({ source: z.string(), error: z.string(), since: z.string() })),
-  prs: z.array(BoardPrSchema),
-  // Both optional deliberately: (1) migration — readBoard() returns null on ANY
-  // parse failure; required fields would make the first post-deploy tick discard
-  // degradations.since carry-forward. (2) model-input hygiene — tools/board.ts
-  // uses BoardSchema as inputSchema; the model must never be required to
-  // fabricate either. Both are runtime-authoritative, stamped by runTick.
+  items: z.array(BoardItemSchema),
   snapshots: z.array(SnapshotValueSchema).optional(),
   material_hash: z.string().optional(),
 });
 export type Board = z.infer<typeof BoardSchema>;
 
 /** The board contract's sort order — enforced, not a convention. */
-export function sortBoardPrs(prs: Board["prs"]): Board["prs"] {
-  return [...prs].sort(
+export function sortBoardItems(items: Board["items"]): Board["items"] {
+  return [...items].sort(
     (a, b) =>
       LIFECYCLE_SORT_ORDER[a.state] - LIFECYCLE_SORT_ORDER[b.state] ||
       a.artifact_uri.localeCompare(b.artifact_uri),
   );
 }
 
+function itemLabel(item: Board["items"][number]): string {
+  return item.kind === "pr" ? `${item.repo}#${item.number}` : `${item.team}/${item.identifier}`;
+}
+
 export function renderBoardMd(board: Board): string {
   const lines: string[] = [];
-  lines.push("# PR Board");
+  lines.push("# Board");
   lines.push(`Generated: ${board.generated_at} — status: ${board.tick_status}`);
   lines.push(`Window: ${board.window.since} → ${board.window.until}`);
   if (board.degradations.length > 0) {
@@ -76,18 +96,18 @@ export function renderBoardMd(board: Board): string {
     }
   }
 
-  const active = board.prs.filter((p) => p.state !== "resolved");
-  const resolved = board.prs.filter((p) => p.state === "resolved");
+  const active = board.items.filter((i) => i.state !== "resolved");
+  const resolved = board.items.filter((i) => i.state === "resolved");
   if (active.length === 0) lines.push("", "All clear — nothing needs you.");
-  for (const pr of active) {
-    lines.push("", `## [${pr.state}] ${pr.repo}#${pr.number} — ${pr.title}`, pr.url, `Reason: ${pr.reason}`);
-    if (pr.summary) lines.push(`Summary: ${pr.summary}`);
-    for (const item of pr.new_items) {
-      lines.push(`- ${item.at} ${item.author} (${item.type}): ${item.preview}`);
+  for (const item of active) {
+    lines.push("", `## [${item.state}] ${itemLabel(item)} — ${item.title}`, item.url, `Reason: ${item.reason}`);
+    if (item.summary) lines.push(`Summary: ${item.summary}`);
+    for (const activity of item.new_items) {
+      lines.push(`- ${activity.at} ${activity.author} (${activity.type}): ${activity.preview}`);
     }
   }
   if (resolved.length > 0) {
-    lines.push("", "---", `Resolved: ${resolved.map((p) => `${p.repo}#${p.number}`).join(", ")}`);
+    lines.push("", "---", `Resolved: ${resolved.map(itemLabel).join(", ")}`);
   }
   return lines.join("\n") + "\n";
 }
@@ -98,7 +118,7 @@ export function boardDir(): string {
 
 /** Validate + write board.json and board.md atomically (write-temp-then-rename): a poll never sees a half-written board. */
 export async function writeBoardAtomic(board: Board, dir: string = boardDir()): Promise<void> {
-  const validated = BoardSchema.parse({ ...board, prs: sortBoardPrs(board.prs) });
+  const validated = BoardSchema.parse({ ...board, items: sortBoardItems(board.items) });
   await mkdir(dir, { recursive: true });
   const jsonTmp = join(dir, ".board.json.tmp");
   const mdTmp = join(dir, ".board.md.tmp");
