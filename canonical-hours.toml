@@ -7,3 +7,8 @@ cron = "*/5 * * * *"
 
 [weather]
 location = "Austin, TX"
+
+[github]
+# GraphQL rateLimit.remaining threshold. Below this, the source sleeps
+# until rateLimit.resetAt before its next call in the current tick.
+min_remaining = 200

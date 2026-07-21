@@ -41,4 +41,25 @@ describe("loadConfig", () => {
     await writeFile(path, '[schedule]\ncron = ""\n', "utf8");
     expect(() => loadConfig(path)).toThrow();
   });
+
+  it("missing [github] table → min_remaining defaults to 200", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "config-"));
+    const config: Config = loadConfig(join(dir, "does-not-exist.toml"));
+    expect(config.github.min_remaining).toBe(200);
+  });
+
+  it("[github] table present → parsed min_remaining", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "config-"));
+    const path = join(dir, "canonical-hours.toml");
+    await writeFile(path, '[github]\nmin_remaining = 500\n', "utf8");
+    const config = loadConfig(path);
+    expect(config.github.min_remaining).toBe(500);
+  });
+
+  it("zod-invalid config (non-positive min_remaining) → throws", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "config-"));
+    const path = join(dir, "bad-github.toml");
+    await writeFile(path, '[github]\nmin_remaining = 0\n', "utf8");
+    expect(() => loadConfig(path)).toThrow();
+  });
 });

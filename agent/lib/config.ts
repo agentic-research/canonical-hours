@@ -5,6 +5,7 @@ import { z } from "zod";
 const ConfigSchema = z.object({
   schedule: z.object({ cron: z.string().min(1) }).default({ cron: "*/5 * * * *" }),
   weather: z.object({ location: z.string().min(1) }).optional(),
+  github: z.object({ min_remaining: z.number().int().positive() }).default({ min_remaining: 200 }),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 
