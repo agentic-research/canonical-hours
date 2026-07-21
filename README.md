@@ -41,12 +41,22 @@ matrix: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#whats-verified-and-whats-not
 ## How it works
 
 Each tick fetches from two sources — GitHub (the sole source of review
-*verdicts*) and lectio (activity only, no verdicts) — merges them by
-canonical PR, folds the merged observations into one of four lifecycle
-states (`opened` → `active` → `needs_you` → `resolved`), and, only if
-something actually needs attention, hands the material off to a Haiku
-model to triage and summarize. A quiet tick costs zero LLM calls. The
-board is written atomically so a poll never sees a half-written file.
+*verdicts*, over its GraphQL API) and lectio (activity only, no
+verdicts) — merges them by canonical PR, folds the merged observations
+into one of four lifecycle states (`opened` → `active` → `needs_you` →
+`resolved`), and, only if something actually needs attention, hands
+the material off to a Haiku model to triage and summarize. A quiet
+tick costs zero LLM calls. The board is written atomically so a poll
+never sees a half-written file.
+
+Three independent things can put a PR in `needs_you`: a standing
+`changes_requested` review, an unanswered comment, or — the newest
+signal — a **failing branch-protection-required CI check** (an
+optional/non-required check failing, or any check merely still
+running, does not count). GitHub is also the source for this: the same
+GraphQL fetch reads each PR's check-run rollup, and a real failure
+surfaces as a `check_failed` board entry alongside whichever review
+activity is also present.
 
 Two generalizations sit on top of that pipeline. First, the tick
 outcome is three-way: `all_clear` (nothing material — templated board,
@@ -58,10 +68,11 @@ three-way tick is what makes the 5-minute default cadence affordable.
 Second, the board carries **snapshot sources** — current-value readings
 (v1: weather, via `WEATHER_API_KEY` + a `[weather]` location in
 `canonical-hours.toml`) with no lifecycle and no LLM involvement,
-fetched every tick and attached to whichever board gets written. Cadence
-and the weather location live in the committed, non-secret
-`canonical-hours.toml`; a missing file means defaults (5-minute cron, no
-weather), a malformed one fails the boot loudly.
+fetched every tick and attached to whichever board gets written. Cadence,
+the weather location, and GitHub's GraphQL rate-limit backoff threshold
+(`[github].min_remaining`, default 200) all live in the committed,
+non-secret `canonical-hours.toml`; a missing file or table means
+defaults, a malformed one fails the boot loudly.
 
 Full design — the hard/soft classification split, why the tick is
 stateless instead of cursor-based, the zero-LLM-call short-circuit, and
