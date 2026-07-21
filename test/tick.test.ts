@@ -6,7 +6,7 @@ import { runTick, inQuietHours, _resetTickGuardForTests, computeMaterialHash, Ti
 import { readBoard, writeBoardAtomic, Board } from "../agent/lib/board";
 import { Source, LifecycleEvent, Observation } from "../agent/sources/source";
 import { MergedArtifact } from "../agent/sources/merge";
-import { SnapshotSource } from "../agent/sources/snapshot";
+import type { SnapshotSource } from "@canonical-hours/core";
 
 const obs = (partial: Partial<Observation>): Observation => ({
   artifact_uri: "pr:o/r#1", at: "2026-07-16T12:00:00Z", author: "mark",

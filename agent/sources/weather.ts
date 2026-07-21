@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SnapshotSource, SnapshotValue, SnapshotValueSchema } from "./snapshot";
+import { SnapshotSource, SnapshotValue, SnapshotValueSchema } from "@canonical-hours/core";
 
 /**
  * Raw OpenWeatherMap current-weather response — only the fields we consume.

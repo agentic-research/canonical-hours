@@ -1,7 +1,7 @@
 import { lectioEnv } from "../connections/lectio";
 import { GithubSource } from "../sources/github";
 import { LectioSource, createMcpLectioCall } from "../sources/lectio";
-import { SnapshotSource } from "../sources/snapshot";
+import type { SnapshotSource } from "@canonical-hours/core";
 import { WeatherSource } from "../sources/weather";
 import { loadConfig } from "./config";
 import { runTick, TickResult } from "./tick";

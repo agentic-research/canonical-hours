@@ -2,12 +2,12 @@ import { z } from "zod";
 import {
   Artifact,
   Classification,
-  FetchWindow,
   LifecycleEvent,
   Observation,
   Source,
   canonicalPrUri,
 } from "./source";
+import type { FetchWindow } from "@canonical-hours/core";
 
 /**
  * One raw memory_authored_activity `prs[]` entry. Shape confirmed against

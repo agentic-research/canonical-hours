@@ -6,7 +6,7 @@ import {
   LIFECYCLE_SORT_ORDER,
   LifecycleStateSchema,
 } from "../sources/source";
-import { SnapshotValueSchema } from "../sources/snapshot";
+import { SnapshotValueSchema } from "@canonical-hours/core";
 
 export const BoardItemSchema = z.object({
   type: z.string(),

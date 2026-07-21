@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SnapshotSource, SnapshotValue, SnapshotValueSchema } from "../agent/sources/snapshot";
+import { SnapshotSource, SnapshotValue, SnapshotValueSchema } from "../src/snapshot";
 
 const value: SnapshotValue = {
   kind: "fake",

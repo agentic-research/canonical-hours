@@ -1,12 +1,12 @@
 import { z } from "zod";
 import {
   Artifact,
-  FetchWindow,
   LifecycleEvent,
   Observation,
   Source,
   canonicalPrUri,
 } from "./source";
+import type { FetchWindow } from "@canonical-hours/core";
 
 /** Composite record: one per PR, assembled by fetch() from REST responses. */
 export const GithubPrRecordSchema = z.looseObject({

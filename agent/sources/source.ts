@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { FetchWindow } from "@canonical-hours/core";
 
 export const LIFECYCLE_STATES = ["opened", "active", "needs_you", "resolved"] as const;
 export const LifecycleStateSchema = z.enum(LIFECYCLE_STATES);
@@ -49,11 +50,6 @@ export type LifecycleEvent = z.infer<typeof LifecycleEventSchema>;
 
 export function canonicalPrUri(owner: string, repo: string, number: number): string {
   return `pr:${owner.toLowerCase()}/${repo.toLowerCase()}#${number}`;
-}
-
-export interface FetchWindow {
-  since: Date;
-  until: Date;
 }
 
 /**

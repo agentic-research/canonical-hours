@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { FetchWindow, LifecycleEvent, Source } from "../sources/source";
+import { LifecycleEvent, Source } from "../sources/source";
 import { MergedArtifact, mergeEvents } from "../sources/merge";
-import { SnapshotSource, SnapshotValue } from "../sources/snapshot";
+import type { FetchWindow, SnapshotSource, SnapshotValue } from "@canonical-hours/core";
 import { Board, readBoard, writeBoardAtomic } from "./board";
 import { AgentTickInput } from "./invoke-agent";
 

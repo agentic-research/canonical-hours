@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["agent/**/*.ts", "evals/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "packages/*/src/**/*.ts", "packages/*/test/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }
