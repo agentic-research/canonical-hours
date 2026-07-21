@@ -328,14 +328,122 @@ describe("GithubSource", () => {
     expect(event.extra).toEqual({ merge_ready: true });
   });
 
-  it("merge_ready is false when a required check is failing", async () => {
-    // PR #42 in the shared `routes` fixture has reviewDecision CHANGES_REQUESTED
-    // and a failing required check — merge_ready must be false either way, but
-    // this asserts the failing-check path specifically stays false even for a
-    // PR whose reviewDecision alone wouldn't disqualify it. Reuse #42 directly.
+  it("merge_ready is false for PR #42 (CHANGES_REQUESTED + failing required check + unresolved thread, all three at once)", async () => {
+    // PR #42 in the shared `routes` fixture fails all three merge_ready
+    // conditions simultaneously — this is a general sanity check, NOT a
+    // condition-isolation test (see the two tests below for that: each one
+    // fails on exactly ONE condition, so a regression dropping any single
+    // clause from the merge_ready computation would still be caught).
     const source = new GithubSource("t", fakeFetch(routes));
     const raws = await source.fetch(window);
     const rec = (raws as Array<{ pr: { number: number } }>).find((r) => r.pr.number === 42)!;
+    const event = source.mapToLifecycleEvent(rec);
+    expect(event.extra).toEqual({ merge_ready: false });
+  });
+
+  it("merge_ready is false when ONLY a required check is failing (approved, no unresolved threads)", async () => {
+    const approvedButFailingCheck = {
+      data: {
+        rateLimit: { remaining: 4999, resetAt: "2026-07-21T12:00:00Z" },
+        viewer: { login: "jamestexas" },
+        search: {
+          nodes: [
+            {
+              __typename: "PullRequest",
+              number: 101,
+              title: "approved but CI is red",
+              url: "https://github.com/jamestexas/agents/pull/101",
+              state: "OPEN",
+              mergedAt: null,
+              closedAt: null,
+              reviewDecision: "APPROVED",
+              mergeable: "MERGEABLE",
+              mergeStateStatus: "BLOCKED",
+              repository: { owner: { login: "jamestexas" }, name: "agents" },
+              reviews: { nodes: [] },
+              comments: { nodes: [] },
+              reviewThreads: { nodes: [] },
+              commits: {
+                nodes: [
+                  {
+                    commit: {
+                      statusCheckRollup: {
+                        contexts: { nodes: [{ __typename: "CheckRun", name: "ci-required", conclusion: "FAILURE" }] },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    };
+    const isRequiredResponse = {
+      data: {
+        rateLimit: { remaining: 4998, resetAt: "2026-07-21T12:00:00Z" },
+        pr0: {
+          commits: {
+            nodes: [
+              {
+                commit: {
+                  statusCheckRollup: {
+                    contexts: { nodes: [{ __typename: "CheckRun", name: "ci-required", isRequired: true }] },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const failingCheckRoutes: Array<[string, unknown]> = [
+      ["updated:>=", approvedButFailingCheck],
+      ["review:changes_requested", fx("search_backstop")],
+      ["pr0:", isRequiredResponse],
+    ];
+    const source = new GithubSource("t", fakeFetch(failingCheckRoutes));
+    const raws = await source.fetch(window);
+    const rec = (raws as Array<{ pr: { number: number } }>).find((r) => r.pr.number === 101)!;
+    const event = source.mapToLifecycleEvent(rec);
+    expect(event.extra).toEqual({ merge_ready: false });
+  });
+
+  it("merge_ready is false when ONLY reviewDecision is CHANGES_REQUESTED (all checks green, no unresolved threads)", async () => {
+    const changesRequestedButGreen = {
+      data: {
+        rateLimit: { remaining: 4999, resetAt: "2026-07-21T12:00:00Z" },
+        viewer: { login: "jamestexas" },
+        search: {
+          nodes: [
+            {
+              __typename: "PullRequest",
+              number: 102,
+              title: "changes requested but CI is green",
+              url: "https://github.com/jamestexas/agents/pull/102",
+              state: "OPEN",
+              mergedAt: null,
+              closedAt: null,
+              reviewDecision: "CHANGES_REQUESTED",
+              mergeable: "MERGEABLE",
+              mergeStateStatus: "BLOCKED",
+              repository: { owner: { login: "jamestexas" }, name: "agents" },
+              reviews: { nodes: [] },
+              comments: { nodes: [] },
+              reviewThreads: { nodes: [] },
+              commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
+            },
+          ],
+        },
+      },
+    };
+    const changesRequestedRoutes: Array<[string, unknown]> = [
+      ["updated:>=", changesRequestedButGreen],
+      ["review:changes_requested", fx("search_backstop")],
+    ];
+    const source = new GithubSource("t", fakeFetch(changesRequestedRoutes));
+    const raws = await source.fetch(window);
+    const rec = (raws as Array<{ pr: { number: number } }>).find((r) => r.pr.number === 102)!;
     const event = source.mapToLifecycleEvent(rec);
     expect(event.extra).toEqual({ merge_ready: false });
   });
