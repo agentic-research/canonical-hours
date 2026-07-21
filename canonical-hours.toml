@@ -12,3 +12,13 @@ location = "Austin, TX"
 # GraphQL rateLimit.remaining threshold. Below this, the source sleeps
 # until rateLimit.resetAt before its next call in the current tick.
 min_remaining = 200
+
+# [linear]
+# Optional — absent means the Linear source is simply not registered (no
+# degradation, not an error), same as [weather]. LINEAR_API_KEY is a secret
+# and lives in .env, never here.
+# team = "ART"
+# user_email = "you@example.com"
+# triage_stale_days = 7
+# triage_abandoned_days = 30
+# todo_stale_days = 30

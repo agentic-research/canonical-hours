@@ -62,4 +62,51 @@ describe("loadConfig", () => {
     await writeFile(path, '[github]\nmin_remaining = 0\n', "utf8");
     expect(() => loadConfig(path)).toThrow();
   });
+
+  it("missing [linear] table → linear is undefined (feature off, no error)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "config-"));
+    const config: Config = loadConfig(join(dir, "does-not-exist.toml"));
+    expect(config.linear).toBeUndefined();
+  });
+
+  it("[linear] table present → parsed team/user_email, defaulted thresholds", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "config-"));
+    const path = join(dir, "canonical-hours.toml");
+    await writeFile(path, '[linear]\nteam = "ART"\nuser_email = "you@example.com"\n', "utf8");
+    const config = loadConfig(path);
+    expect(config.linear).toEqual({
+      team: "ART",
+      user_email: "you@example.com",
+      triage_stale_days: 7,
+      triage_abandoned_days: 30,
+      todo_stale_days: 30,
+    });
+  });
+
+  it("[linear] table can override the day thresholds", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "config-"));
+    const path = join(dir, "canonical-hours.toml");
+    await writeFile(
+      path,
+      '[linear]\nteam = "ART"\nuser_email = "you@example.com"\ntriage_stale_days = 3\n',
+      "utf8",
+    );
+    const config = loadConfig(path);
+    expect(config.linear?.triage_stale_days).toBe(3);
+    expect(config.linear?.triage_abandoned_days).toBe(30); // still defaulted
+  });
+
+  it("[linear] table present but missing team → throws", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "config-"));
+    const path = join(dir, "canonical-hours.toml");
+    await writeFile(path, '[linear]\nuser_email = "you@example.com"\n', "utf8");
+    expect(() => loadConfig(path)).toThrow();
+  });
+
+  it("[linear] table present but missing user_email → throws", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "config-"));
+    const path = join(dir, "canonical-hours.toml");
+    await writeFile(path, '[linear]\nteam = "ART"\n', "utf8");
+    expect(() => loadConfig(path)).toThrow();
+  });
 });

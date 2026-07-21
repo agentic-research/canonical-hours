@@ -6,6 +6,15 @@ const ConfigSchema = z.object({
   schedule: z.object({ cron: z.string().min(1) }).default({ cron: "*/5 * * * *" }),
   weather: z.object({ location: z.string().min(1) }).optional(),
   github: z.object({ min_remaining: z.number().int().positive() }).default({ min_remaining: 200 }),
+  linear: z
+    .object({
+      team: z.string().min(1),
+      user_email: z.string().min(1),
+      triage_stale_days: z.number().int().positive().default(7),
+      triage_abandoned_days: z.number().int().positive().default(30),
+      todo_stale_days: z.number().int().positive().default(30),
+    })
+    .optional(),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 
