@@ -1,13 +1,23 @@
 {
-  "items": [
-    {
-      "number": 7,
-      "title": "fix: stale review from last week",
-      "html_url": "https://github.com/jamestexas/mache/pull/7",
-      "repository_url": "https://api.github.com/repos/jamestexas/mache",
-      "state": "open",
-      "closed_at": null,
-      "pull_request": { "merged_at": null }
+  "data": {
+    "rateLimit": { "remaining": 4998, "resetAt": "2026-07-21T12:00:00Z" },
+    "viewer": { "login": "jamestexas" },
+    "search": {
+      "nodes": [
+        {
+          "__typename": "PullRequest",
+          "number": 7,
+          "title": "fix: retry logic",
+          "url": "https://github.com/jamestexas/mache/pull/7",
+          "state": "OPEN",
+          "mergedAt": null,
+          "closedAt": null,
+          "repository": { "owner": { "login": "jamestexas" }, "name": "mache" },
+          "reviews": { "nodes": [] },
+          "comments": { "nodes": [] },
+          "commits": { "nodes": [ { "commit": { "statusCheckRollup": null } } ] }
+        }
+      ]
     }
-  ]
+  }
 }

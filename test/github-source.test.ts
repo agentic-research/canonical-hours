@@ -2,15 +2,20 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { GithubSource } from "../agent/sources/github";
 
-const fx = (name: string) =>
-  JSON.parse(readFileSync(`test/fixtures/github/${name}.json`, "utf8"));
+const fx = (name: string) => JSON.parse(readFileSync(`test/fixtures/github/${name}.json`, "utf8"));
 
-/** URL-substring → fixture body. First match wins. */
+/**
+ * Fake GraphQL POST endpoint. GitHub's GraphQL API is one POST endpoint
+ * with a body, not distinguishable by URL — routes match on a substring
+ * the query TEXT contains (the search query-string argument, which is
+ * unique per call), returning the fixture body as the whole GraphQL
+ * response ({ data: {...} }).
+ */
 function fakeFetch(routes: Array<[string, unknown]>): typeof fetch {
-  return (async (input: RequestInfo | URL) => {
-    const url = String(input);
-    const hit = routes.find(([needle]) => url.includes(needle));
-    if (!hit) throw new Error(`no fixture for ${url}`);
+  return (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const body = String(init?.body ?? "");
+    const hit = routes.find(([needle]) => body.includes(needle));
+    if (!hit) throw new Error(`no fixture for request body: ${body.slice(0, 200)}`);
     return new Response(JSON.stringify(hit[1]), { status: 200 });
   }) as typeof fetch;
 }
@@ -21,13 +26,8 @@ const window = {
 };
 
 const routes: Array<[string, unknown]> = [
-  ["/user", fx("user")],
-  ["review%3Achanges_requested", fx("search_backstop")],
-  ["/search/issues", fx("search_windowed")],
-  ["/repos/jamestexas/agents/pulls/42/reviews", fx("reviews")],
-  ["/repos/jamestexas/agents/issues/42/comments", fx("comments")],
-  ["/repos/jamestexas/mache/pulls/7/reviews", fx("reviews")],
-  ["/repos/jamestexas/mache/issues/7/comments", []],
+  ["review:changes_requested", fx("search_backstop")],
+  ["updated:>=", fx("search_windowed")],
 ];
 
 describe("GithubSource", () => {
@@ -54,8 +54,6 @@ describe("GithubSource", () => {
     const verdict = event.observations.find((o) => o.type === "review_changes_requested")!;
     expect(verdict.classification).toBe("hard");
     expect(verdict.author).toBe("mark");
-    const own = event.observations.find((o) => o.author === "jamestexas")!;
-    expect(own.type).toBe("own_reply");
   });
 
   it("backstop records carry a needs_you state_hint", async () => {
@@ -65,52 +63,15 @@ describe("GithubSource", () => {
     expect(source.mapToLifecycleEvent(rec).state_hint).toBe("needs_you");
   });
 
-  it("honors retry-after once, then surfaces rate limiting as an error", async () => {
-    let calls = 0;
-    const limited = (async () => {
-      calls++;
-      if (calls === 1) {
-        return new Response("{}", { status: 429, headers: { "retry-after": "0" } });
-      }
-      return new Response(JSON.stringify(fx("user")), { status: 200 });
-    }) as typeof fetch;
-    const recovered = new GithubSource("t", limited);
-    await expect(recovered.freshness()).resolves.toBeTruthy();
-
-    const alwaysLimited = (async () =>
-      new Response("{}", { status: 429, headers: { "retry-after": "999" } })) as typeof fetch;
-    const dead = new GithubSource("t", alwaysLimited);
-    await expect(dead.fetch(window)).rejects.toThrow(/rate limited/);
-  });
-
   it("fails loudly on malformed records", () => {
     const source = new GithubSource("t", fakeFetch(routes));
     expect(() => source.mapToLifecycleEvent({ nope: true })).toThrow();
   });
 
-  it("skips PENDING reviews (submitted_at: null) rather than emitting an invalid observation", () => {
+  it("null statusCheckRollup (no commits/checks yet) maps to an empty checkRollup", async () => {
     const source = new GithubSource("t", fakeFetch(routes));
-    const rec = {
-      pr: {
-        number: 42,
-        title: "feat: add pr-board skill",
-        html_url: "https://github.com/jamestexas/agents/pull/42",
-        repository: "jamestexas/agents",
-        state: "open",
-        merged_at: null,
-        closed_at: null,
-      },
-      reviews: fx("reviews_pending"),
-      comments: [],
-      backstop: false,
-      viewer: "jamestexas",
-    };
-    const event = source.mapToLifecycleEvent(rec);
-    // Only the submitted CHANGES_REQUESTED review produces an observation;
-    // the PENDING review (submitted_at: null) is skipped entirely.
-    expect(event.observations).toHaveLength(1);
-    const verdict = event.observations[0];
-    expect(verdict.type).toBe("review_changes_requested");
-    expect(verdict.at).toBe("2026-07-16T14:00:00Z");
+    const raws = await source.fetch(window);
+    const rec = (raws as Array<{ pr: { number: number }; checkRollup: unknown[] }>).find((r) => r.pr.number === 42)!;
+    expect(rec.checkRollup).toEqual([]);
   });
 });

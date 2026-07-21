@@ -1,13 +1,37 @@
 {
-  "items": [
-    {
-      "number": 42,
-      "title": "feat: add pr-board skill",
-      "html_url": "https://github.com/jamestexas/agents/pull/42",
-      "repository_url": "https://api.github.com/repos/jamestexas/agents",
-      "state": "open",
-      "closed_at": null,
-      "pull_request": { "merged_at": null }
+  "data": {
+    "rateLimit": { "remaining": 4999, "resetAt": "2026-07-21T12:00:00Z" },
+    "viewer": { "login": "jamestexas" },
+    "search": {
+      "nodes": [
+        {
+          "__typename": "PullRequest",
+          "number": 42,
+          "title": "feat: add pr-board skill",
+          "url": "https://github.com/jamestexas/agents/pull/42",
+          "state": "OPEN",
+          "mergedAt": null,
+          "closedAt": null,
+          "repository": { "owner": { "login": "jamestexas" }, "name": "agents" },
+          "reviews": {
+            "nodes": [
+              {
+                "author": { "login": "mark" },
+                "state": "CHANGES_REQUESTED",
+                "submittedAt": "2026-07-16T14:00:00Z",
+                "body": "Please split this function.",
+                "url": "https://github.com/jamestexas/agents/pull/42#pullrequestreview-1"
+              }
+            ]
+          },
+          "comments": { "nodes": [] },
+          "commits": {
+            "nodes": [
+              { "commit": { "statusCheckRollup": null } }
+            ]
+          }
+        }
+      ]
     }
-  ]
+  }
 }
