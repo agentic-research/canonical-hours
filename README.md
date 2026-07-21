@@ -11,34 +11,26 @@ pushes; you poll or call.
 
 The pipeline is pluggable, not PR-specific: a second kind of check —
 current-value snapshots like the weather — rides the same tick, no LLM
-involved.
-
-It's a port of an interactive Claude Code skill
+involved. It's a port of an interactive Claude Code skill
 ([`pr-board`](agent/skills/pr-board/SKILL.md)) into a standing agent —
 same question, but answered continuously instead of only when you ask.
 
-```sh
-cp .env.example .env    # fill in LECTIO_URL/TOKEN, GITHUB_TOKEN, ANTHROPIC_API_KEY (+ optional WEATHER_API_KEY)
-task dev                # eve dev — runs the agent locally (installs deps first)
-```
+**New here?** → [GETTING_STARTED.md](GETTING_STARTED.md) for the full
+setup, local run, and MCP-wiring walkthrough. The sections below are
+reference material — expand what you need.
 
-With `eve dev` running, fire a tick manually (the schedule's cron never
-fires in dev) and read the board back:
-
-```sh
-curl -X POST http://127.0.0.1:2000/eve/v1/dev/schedules/pr-board
-curl http://127.0.0.1:2000/board       # board.json
-curl http://127.0.0.1:2000/board/md    # human-readable
-```
-
-## Status
+<details>
+<summary><strong>Status</strong></summary>
 
 Every tick path (all-clear, degraded-fallback, material/LLM-triaged)
 and the MCP surface run end to end against `eve dev`. Runs locally
 today; a deployment target (fly.io or Vercel) is next. Full verification
 matrix: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#whats-verified-and-whats-not).
 
-## How it works
+</details>
+
+<details>
+<summary><strong>How it works</strong></summary>
 
 Each tick fetches from two sources — GitHub (the sole source of review
 *verdicts*, over its GraphQL API) and lectio (activity only, no
@@ -50,17 +42,16 @@ tick costs zero LLM calls. The board is written atomically so a poll
 never sees a half-written file.
 
 Three independent things can put a PR in `needs_you`: a standing
-`changes_requested` review, an unanswered comment, or — the newest
-signal — a **failing branch-protection-required CI check** (an
-optional/non-required check failing, or any check merely still
-running, does not count). GitHub is also the source for this: the same
-GraphQL fetch reads each PR's check-run rollup, and a real failure
-surfaces as a `check_failed` board entry alongside whichever review
-activity is also present. The board also carries a derived
-`merge_ready` boolean per PR — `true` when the PR is approved (or needs
-no review), has no failing required checks, and has no unresolved review
-threads — computed deterministically, never folded into a lifecycle
-state.
+`changes_requested` review, an unanswered comment, or a **failing
+branch-protection-required CI check** (an optional/non-required check
+failing, or any check merely still running, does not count). GitHub is
+also the source for this: the same GraphQL fetch reads each PR's
+check-run rollup, and a real failure surfaces as a `check_failed` board
+entry alongside whichever review activity is also present. The board
+also carries a derived `merge_ready` boolean per PR — `true` when the
+PR is approved (or needs no review), has no failing required checks,
+and has no unresolved review threads — computed deterministically,
+never folded into a lifecycle state.
 
 Two generalizations sit on top of that pipeline. First, the tick
 outcome is three-way: `all_clear` (nothing material — templated board,
@@ -83,13 +74,17 @@ stateless instead of cursor-based, the zero-LLM-call short-circuit, and
 a worked example tracing one PR through the whole pipeline — is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## MCP surface
+</details>
+
+<details>
+<summary><strong>MCP surface</strong></summary>
 
 canonical-hours is meant to be the general home for scheduled,
 repeatable agent tasks — not just a PR board — so that whole class of
 capability needs to be queryable and triggerable by other agent
 infrastructure, not just by a human hitting `curl`. Alongside the REST
-routes above, it also speaks
+routes (`GET /board`, `GET /board/md` — see
+[GETTING_STARTED.md](GETTING_STARTED.md)), it also speaks
 [MCP](https://modelcontextprotocol.io) (streamable-HTTP, JSON mode) at
 `/mcp`, so it can be registered as a tool server with
 [cloister](../cloister) (a v8-isolate hypervisor that bundles MCP
@@ -118,7 +113,10 @@ To point a client at a running instance, register the deployed
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-mcp-surface) for the
 transport and tenancy details.
 
-## Repo map
+</details>
+
+<details>
+<summary><strong>Repo map</strong></summary>
 
 - `packages/core` (`@canonical-hours/core`, a pnpm workspace package) —
   the genuinely generic, proven-by-a-second-consumer pieces:
@@ -147,13 +145,17 @@ transport and tenancy details.
 - `docs/eve-api-notes.md`, `docs/lectio-api-notes.md` — implementation
   research notes on the eve and lectio APIs, cited from the code.
 
-## Commands
+</details>
+
+<details>
+<summary><strong>Commands</strong></summary>
 
 Local dev and CI (once this repo has a workflow) both run through
 [Taskfile.yml](Taskfile.yml) — the same convention as
 [cloister](../cloister), [rosary](../rosary), and
 [mache](../mache). Never invoke `pnpm`/`tsc`/`vitest` directly in a
-workflow; call the matching `task` target instead.
+workflow; call the matching `task` target instead. Full walkthrough in
+[GETTING_STARTED.md](GETTING_STARTED.md).
 
 ```sh
 task dev          # eve dev — run the agent locally
@@ -165,3 +167,5 @@ task smells       # structural smell gate, ratcheted against docs/smell-baseline
 task install-hooks  # once per clone: wires task smells into .git/hooks/pre-commit
 task --list       # see everything, including deps/watch/smells:baseline
 ```
+
+</details>
