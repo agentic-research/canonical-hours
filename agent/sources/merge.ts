@@ -9,6 +9,7 @@ export interface MergedArtifact {
   artifact: Artifact;
   observations: Observation[];
   state: LifecycleState;
+  extra?: Record<string, unknown>;
 }
 
 /** Activity by others that can leave something outstanding on you. */
@@ -87,7 +88,7 @@ export function mergeEvents(
   ];
   const entries = new Map<
     string,
-    { artifact: Artifact; observations: Map<string, Observation>; hints: LifecycleState[] }
+    { artifact: Artifact; observations: Map<string, Observation>; hints: LifecycleState[]; extra: Record<string, unknown> }
   >();
 
   for (const sourceName of ordered) {
@@ -95,10 +96,13 @@ export function mergeEvents(
       const uri = event.artifact.uri;
       let entry = entries.get(uri);
       if (!entry) {
-        entry = { artifact: event.artifact, observations: new Map(), hints: [] };
+        entry = { artifact: event.artifact, observations: new Map(), hints: [], extra: {} };
         entries.set(uri, entry);
       }
       if (event.state_hint) entry.hints.push(event.state_hint);
+      // Earlier-priority source's keys win: entry.extra was populated by an
+      // earlier-iterated (higher-priority) source first, so it's spread LAST.
+      if (event.extra) entry.extra = { ...event.extra, ...entry.extra };
       for (const obs of event.observations) {
         const key = obsKey(obs);
         const existing = entry.observations.get(key);
@@ -113,6 +117,8 @@ export function mergeEvents(
 
   return [...entries.values()].map((e) => {
     const observations = [...e.observations.values()].sort((a, b) => a.at.localeCompare(b.at));
-    return { artifact: e.artifact, observations, state: foldState(observations, e.hints) };
+    const merged: MergedArtifact = { artifact: e.artifact, observations, state: foldState(observations, e.hints) };
+    if (Object.keys(e.extra).length > 0) merged.extra = e.extra;
+    return merged;
   });
 }

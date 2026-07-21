@@ -399,10 +399,18 @@ export class GithubSource implements Source {
         classification: "hard",
       });
     }
+    // merge_ready: watch-pr.md §3's three explicit conditions, ported verbatim —
+    // NOT GitHub's own broader mergeStateStatus, which also folds in merge-conflict
+    // state that watch-pr's rule doesn't consider.
+    const mergeReady =
+      (rec.pr.reviewDecision === "APPROVED" || rec.pr.reviewDecision === null) &&
+      failingRequired.length === 0 &&
+      rec.unresolvedThreads.length === 0;
     return {
       artifact,
       observations,
       state_hint: rec.backstop || failingRequired.length > 0 ? "needs_you" : undefined,
+      extra: { merge_ready: mergeReady },
     };
   }
 

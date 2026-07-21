@@ -133,4 +133,20 @@ describe("mergeEvents", () => {
     expect(merged[0].state).toBe("active");
     expect(merged[0].observations[0].type).toBe("comment");
   });
+
+  it("carries a source's `extra` through to the merged artifact", () => {
+    const github = [event("pr:o/r#1", [obs({})])];
+    github[0].extra = { merge_ready: true };
+    const merged = mergeEvents({ github }, ["lectio", "github"]);
+    expect(merged[0].extra).toEqual({ merge_ready: true });
+  });
+
+  it("higher-priority source's extra keys win on conflict", () => {
+    const lectio = [event("pr:o/r#1", [obs({})])];
+    lectio[0].extra = { merge_ready: false };
+    const github = [event("pr:o/r#1", [obs({ author: "other" })])];
+    github[0].extra = { merge_ready: true };
+    const merged = mergeEvents({ lectio, github }, ["lectio", "github"]);
+    expect(merged[0].extra).toEqual({ merge_ready: false });
+  });
 });

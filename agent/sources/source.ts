@@ -45,6 +45,10 @@ export const LifecycleEventSchema = z.object({
   artifact: ArtifactSchema,
   observations: z.array(ObservationSchema),
   state_hint: LifecycleStateSchema.optional(),
+  // Passthrough bag for source-specific derived board fields (e.g. GithubSource's
+  // merge_ready) that don't fit the Observation/foldState vocabulary — never read
+  // by foldState itself, only by tick.ts when building a board entry.
+  extra: z.record(z.string(), z.unknown()).optional(),
 });
 export type LifecycleEvent = z.infer<typeof LifecycleEventSchema>;
 

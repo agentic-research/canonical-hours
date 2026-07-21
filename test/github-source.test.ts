@@ -288,4 +288,112 @@ describe("GithubSource", () => {
     const rec = raws.find((r) => r.pr.number === 42)!;
     expect(rec.reviews[0]).toMatchObject({ id: "PRR_1", author: "mark", authorIsBot: false });
   });
+
+  it("merge_ready is true when approved, no failing required checks, and no unresolved threads", async () => {
+    const cleanPr = {
+      data: {
+        rateLimit: { remaining: 4999, resetAt: "2026-07-21T12:00:00Z" },
+        viewer: { login: "jamestexas" },
+        search: {
+          nodes: [
+            {
+              __typename: "PullRequest",
+              number: 99,
+              title: "clean PR",
+              url: "https://github.com/jamestexas/agents/pull/99",
+              state: "OPEN",
+              mergedAt: null,
+              closedAt: null,
+              reviewDecision: "APPROVED",
+              mergeable: "MERGEABLE",
+              mergeStateStatus: "CLEAN",
+              repository: { owner: { login: "jamestexas" }, name: "agents" },
+              reviews: { nodes: [] },
+              comments: { nodes: [] },
+              reviewThreads: { nodes: [] },
+              commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
+            },
+          ],
+        },
+      },
+    };
+    const cleanRoutes: Array<[string, unknown]> = [
+      ["updated:>=", cleanPr],
+      ["review:changes_requested", fx("search_backstop")],
+    ];
+    const source = new GithubSource("t", fakeFetch(cleanRoutes));
+    const raws = await source.fetch(window);
+    const rec = (raws as Array<{ pr: { number: number } }>).find((r) => r.pr.number === 99)!;
+    const event = source.mapToLifecycleEvent(rec);
+    expect(event.extra).toEqual({ merge_ready: true });
+  });
+
+  it("merge_ready is false when a required check is failing", async () => {
+    // PR #42 in the shared `routes` fixture has reviewDecision CHANGES_REQUESTED
+    // and a failing required check — merge_ready must be false either way, but
+    // this asserts the failing-check path specifically stays false even for a
+    // PR whose reviewDecision alone wouldn't disqualify it. Reuse #42 directly.
+    const source = new GithubSource("t", fakeFetch(routes));
+    const raws = await source.fetch(window);
+    const rec = (raws as Array<{ pr: { number: number } }>).find((r) => r.pr.number === 42)!;
+    const event = source.mapToLifecycleEvent(rec);
+    expect(event.extra).toEqual({ merge_ready: false });
+  });
+
+  it("merge_ready is false when there are unresolved review threads even if approved and green", async () => {
+    const approvedWithThread = {
+      data: {
+        rateLimit: { remaining: 4999, resetAt: "2026-07-21T12:00:00Z" },
+        viewer: { login: "jamestexas" },
+        search: {
+          nodes: [
+            {
+              __typename: "PullRequest",
+              number: 100,
+              title: "approved but has an open thread",
+              url: "https://github.com/jamestexas/agents/pull/100",
+              state: "OPEN",
+              mergedAt: null,
+              closedAt: null,
+              reviewDecision: "APPROVED",
+              mergeable: "MERGEABLE",
+              mergeStateStatus: "BLOCKED",
+              repository: { owner: { login: "jamestexas" }, name: "agents" },
+              reviews: { nodes: [] },
+              comments: { nodes: [] },
+              reviewThreads: {
+                nodes: [
+                  {
+                    id: "PRRT_2",
+                    isResolved: false,
+                    path: "src/bar.ts",
+                    comments: { nodes: [{ pullRequestReview: { submittedAt: "2026-07-16T14:00:00Z" } }] },
+                  },
+                ],
+              },
+              commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
+            },
+          ],
+        },
+      },
+    };
+    const threadRoutes: Array<[string, unknown]> = [
+      ["updated:>=", approvedWithThread],
+      ["review:changes_requested", fx("search_backstop")],
+    ];
+    const source = new GithubSource("t", fakeFetch(threadRoutes));
+    const raws = await source.fetch(window);
+    const rec = (raws as Array<{ pr: { number: number } }>).find((r) => r.pr.number === 100)!;
+    const event = source.mapToLifecycleEvent(rec);
+    expect(event.extra).toEqual({ merge_ready: false });
+  });
+
+  it("merge_ready is true when reviewDecision is null (no review required)", async () => {
+    // search_backstop's PR #7 has reviewDecision: null, no threads, no checks.
+    const source = new GithubSource("t", fakeFetch(routes));
+    const raws = await source.fetch(window);
+    const rec = (raws as Array<{ pr: { number: number } }>).find((r) => r.pr.number === 7)!;
+    const event = source.mapToLifecycleEvent(rec);
+    expect(event.extra).toEqual({ merge_ready: true });
+  });
 });

@@ -52,6 +52,7 @@ export function toBoardPr(m: MergedArtifact): Board["prs"][number] {
     opened: "no activity from others yet",
     resolved: "merged, closed, or fully answered",
   }[m.state];
+  const mergeReady = m.extra?.merge_ready;
   return {
     artifact_uri: m.artifact.uri,
     repo: m.artifact.repo,
@@ -73,6 +74,7 @@ export function toBoardPr(m: MergedArtifact): Board["prs"][number] {
             : undefined,
       classification: o.classification,
     })),
+    ...(typeof mergeReady === "boolean" ? { merge_ready: mergeReady } : {}),
   };
 }
 

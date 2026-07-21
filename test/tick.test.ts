@@ -171,6 +171,17 @@ describe("runTick", () => {
     d.now = () => new Date("2026-07-17T23:30:00Z");
     expect(await runTick(d)).toBe("skipped_quiet");
   });
+
+  it("a source event's extra.merge_ready flows through to the board PR entry", async () => {
+    // No observations → opened → non-material, so runTick's templated path builds
+    // the board via toBoardPr, exercising the extra → merge_ready passthrough end to end.
+    const ev = event("pr:o/r#1", []);
+    ev.extra = { merge_ready: true };
+    const d = await deps({ sources: [fakeSource("lectio", [ev])] });
+    expect(await runTick(d)).toBe("all_clear");
+    const board = await readBoard(d.boardDir);
+    expect(board?.prs[0].merge_ready).toBe(true);
+  });
 });
 
 const ma = (uri: string, state: MergedArtifact["state"], obsAts: string[]): MergedArtifact => ({

@@ -28,6 +28,7 @@ export const BoardPrSchema = z.object({
   reason: z.string(),
   new_items: z.array(BoardItemSchema),
   summary: z.string().optional(), // Haiku's thread summary; absent on all-clear
+  merge_ready: z.boolean().optional(), // absent for non-GitHub artifacts or when unknown
 });
 
 export const BoardSchema = z.object({
