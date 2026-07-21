@@ -1,11 +1,17 @@
 # canonical-hours
 
-canonical-hours is an [eve.dev](https://eve.dev) agent that answers one
-recurring question on a schedule, without you asking: **"how are my
-PRs, and does anything need me?"** It pulls your authored-PR activity
-from GitHub and [lectio](../lectio) (an observational memory server)
-and folds it into a short status board. You poll that board over HTTP;
-it never pushes.
+canonical-hours is a standing [eve.dev](https://eve.dev) agent for
+repeatable checks — run on a schedule, or triggered on demand via MCP.
+PR board is the flagship one: **"how are my PRs, and does anything
+need me?"** It pulls your authored-PR activity from GitHub and
+[lectio](../lectio) and folds it into a short status board, served
+over HTTP. Ticks fire on a configurable cron by default, or right now
+via the MCP `trigger_tick` tool — either way, canonical-hours never
+pushes; you poll or call.
+
+The pipeline is pluggable, not PR-specific: a second kind of check —
+current-value snapshots like the weather — rides the same tick, no LLM
+involved.
 
 It's a port of an interactive Claude Code skill
 ([`pr-board`](agent/skills/pr-board/SKILL.md)) into a standing agent —
