@@ -26,10 +26,15 @@ export const GithubPrRecordSchema = z.looseObject({
     state: z.string(),
     mergedAt: z.string().nullable(),
     closedAt: z.string().nullable(),
+    reviewDecision: z.string().nullable(),
+    mergeable: z.string(),
+    mergeStateStatus: z.string(),
   }),
   reviews: z.array(
     z.looseObject({
+      id: z.string(),
       author: z.string(), // "" if the review's author account was deleted (GraphQL Actor is nullable)
+      authorIsBot: z.boolean(),
       state: z.string(), // APPROVED | CHANGES_REQUESTED | COMMENTED | DISMISSED
       submittedAt: z.string().nullable(),
       body: z.string().nullable(),
@@ -45,6 +50,13 @@ export const GithubPrRecordSchema = z.looseObject({
     }),
   ),
   checkRollup: z.array(CheckRollupEntrySchema),
+  unresolvedThreads: z.array(
+    z.looseObject({
+      id: z.string(),
+      path: z.string(),
+      reviewSubmittedAt: z.string().nullable(),
+    }),
+  ),
   backstop: z.boolean(),
   viewer: z.string(),
 });
@@ -67,9 +79,29 @@ interface GqlPullRequest {
   state: string;
   mergedAt: string | null;
   closedAt: string | null;
+  reviewDecision: string | null;
+  mergeable: string;
+  mergeStateStatus: string;
   repository: { owner: { login: string }; name: string };
-  reviews: { nodes: Array<{ author: { login: string } | null; state: string; submittedAt: string | null; body: string | null; url?: string }> };
+  reviews: {
+    nodes: Array<{
+      id: string;
+      author: { login: string; __typename: string } | null;
+      state: string;
+      submittedAt: string | null;
+      body: string | null;
+      url?: string;
+    }>;
+  };
   comments: { nodes: Array<{ author: { login: string } | null; createdAt: string; body: string; url?: string }> };
+  reviewThreads: {
+    nodes: Array<{
+      id: string;
+      isResolved: boolean;
+      path: string;
+      comments: { nodes: Array<{ pullRequestReview: { submittedAt: string } | null }> };
+    }>;
+  };
   commits: { nodes: Array<{ commit: { statusCheckRollup: { contexts: { nodes: Array<Record<string, unknown>> } } | null } }> };
 }
 interface GqlSearchResponse {
@@ -108,9 +140,20 @@ const SEARCH_QUERY = `
         __typename
         ... on PullRequest {
           number title url state mergedAt closedAt
+          reviewDecision mergeable mergeStateStatus
           repository { owner { login } name }
-          reviews(first: 50) { nodes { author { login } state submittedAt body url } }
+          reviews(first: 50) { nodes { id author { login __typename } state submittedAt body url } }
           comments(first: 50) { nodes { author { login } createdAt body url } }
+          reviewThreads(first: 50) {
+            nodes {
+              id
+              isResolved
+              path
+              comments(first: 1) {
+                nodes { pullRequestReview { submittedAt } }
+              }
+            }
+          }
           commits(last: 1) {
             nodes {
               commit {
@@ -278,10 +321,28 @@ export class GithubSource implements Source {
         state: node.state,
         mergedAt: node.mergedAt,
         closedAt: node.closedAt,
+        reviewDecision: node.reviewDecision,
+        mergeable: node.mergeable,
+        mergeStateStatus: node.mergeStateStatus,
       },
-      reviews: node.reviews.nodes.map((r) => ({ author: r.author?.login ?? "", state: r.state, submittedAt: r.submittedAt, body: r.body, url: r.url })),
+      reviews: node.reviews.nodes.map((r) => ({
+        id: r.id,
+        author: r.author?.login ?? "",
+        authorIsBot: r.author?.__typename === "Bot",
+        state: r.state,
+        submittedAt: r.submittedAt,
+        body: r.body,
+        url: r.url,
+      })),
       comments: node.comments.nodes.map((c) => ({ author: c.author?.login ?? "", createdAt: c.createdAt, body: c.body, url: c.url })),
       checkRollup: normalizeCheckRollup(node.commits.nodes[0]?.commit.statusCheckRollup ?? null, requiredByPr.get(key(node)) ?? new Set()),
+      unresolvedThreads: node.reviewThreads.nodes
+        .filter((t) => !t.isResolved)
+        .map((t) => ({
+          id: t.id,
+          path: t.path,
+          reviewSubmittedAt: t.comments.nodes[0]?.pullRequestReview?.submittedAt ?? null,
+        })),
       backstop: isBackstop,
       viewer: login,
     }));

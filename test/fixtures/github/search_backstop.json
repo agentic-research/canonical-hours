@@ -12,9 +12,13 @@
           "state": "OPEN",
           "mergedAt": null,
           "closedAt": null,
+          "reviewDecision": null,
+          "mergeable": "MERGEABLE",
+          "mergeStateStatus": "CLEAN",
           "repository": { "owner": { "login": "jamestexas" }, "name": "mache" },
           "reviews": { "nodes": [] },
           "comments": { "nodes": [] },
+          "reviewThreads": { "nodes": [] },
           "commits": { "nodes": [ { "commit": { "statusCheckRollup": null } } ] }
         }
       ]

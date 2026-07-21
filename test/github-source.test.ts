@@ -194,9 +194,13 @@ describe("GithubSource", () => {
               state: "OPEN",
               mergedAt: null,
               closedAt: null,
+              reviewDecision: null,
+              mergeable: "MERGEABLE",
+              mergeStateStatus: "UNSTABLE",
               repository: { owner: { login: "owner-a" }, name: "repo-a" },
               reviews: { nodes: [] },
               comments: { nodes: [] },
+              reviewThreads: { nodes: [] },
               commits: { nodes: [ { commit: { statusCheckRollup: { contexts: { nodes: [
                 { __typename: "CheckRun", name: "ci", conclusion: "FAILURE" },
               ] } } } } ] },
@@ -209,9 +213,13 @@ describe("GithubSource", () => {
               state: "OPEN",
               mergedAt: null,
               closedAt: null,
+              reviewDecision: null,
+              mergeable: "MERGEABLE",
+              mergeStateStatus: "UNSTABLE",
               repository: { owner: { login: "owner-b" }, name: "repo-b" },
               reviews: { nodes: [] },
               comments: { nodes: [] },
+              reviewThreads: { nodes: [] },
               commits: { nodes: [ { commit: { statusCheckRollup: { contexts: { nodes: [
                 { __typename: "CheckRun", name: "ci", conclusion: "FAILURE" },
               ] } } } } ] },
@@ -254,5 +262,30 @@ describe("GithubSource", () => {
     expect(repoB.pr.number).toBe(1);
     expect(repoA.checkRollup.find((c) => c.name === "ci")?.required).toBe(true);
     expect(repoB.checkRollup.find((c) => c.name === "ci")?.required).toBe(false);
+  });
+
+  it("fetch surfaces reviewDecision, mergeable, mergeStateStatus, and unresolvedThreads on the raw record", async () => {
+    const source = new GithubSource("t", fakeFetch(routes));
+    const raws = (await source.fetch(window)) as Array<{
+      pr: { number: number; reviewDecision: string | null; mergeable: string; mergeStateStatus: string };
+      unresolvedThreads: Array<{ id: string; path: string; reviewSubmittedAt: string | null }>;
+    }>;
+    const rec = raws.find((r) => r.pr.number === 42)!;
+    expect(rec.pr.reviewDecision).toBe("CHANGES_REQUESTED");
+    expect(rec.pr.mergeable).toBe("MERGEABLE");
+    expect(rec.pr.mergeStateStatus).toBe("BLOCKED");
+    expect(rec.unresolvedThreads).toEqual([
+      { id: "PRRT_1", path: "src/foo.ts", reviewSubmittedAt: "2026-07-16T14:00:00Z" },
+    ]);
+  });
+
+  it("reviews carry id and authorIsBot", async () => {
+    const source = new GithubSource("t", fakeFetch(routes));
+    const raws = (await source.fetch(window)) as Array<{
+      pr: { number: number };
+      reviews: Array<{ id: string; author: string; authorIsBot: boolean }>;
+    }>;
+    const rec = raws.find((r) => r.pr.number === 42)!;
+    expect(rec.reviews[0]).toMatchObject({ id: "PRR_1", author: "mark", authorIsBot: false });
   });
 });
