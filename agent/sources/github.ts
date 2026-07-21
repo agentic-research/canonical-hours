@@ -145,11 +145,20 @@ interface GqlRequiredCheckResponse {
  * `search` (verified live). Requests `rateLimit` too: graphqlRequest's
  * backoff check (Task 3) reads json.data.rateLimit unconditionally, on
  * every request this method makes, not just the primary search ones.
+ *
+ * Aliases by ARRAY INDEX (`pr0`, `pr1`, ...), not by PR number: this source
+ * fetches the viewer's own PRs across every repo they've touched, where
+ * identical PR numbers across different repos are the norm (every repo has
+ * a #1). Aliasing by number alone would emit duplicate alias names whenever
+ * two same-numbered PRs from different repos both had a failing check in
+ * the same tick, which GitHub's GraphQL API rejects outright — failing the
+ * whole request, not just those PRs. The index is always unique regardless
+ * of which repos are involved.
  */
 function buildRequiredCheckQuery(prs: Array<{ owner: string; repo: string; number: number }>): string {
   const blocks = prs.map(
-    ({ owner, repo, number }) => `
-      pr${number}: repository(owner: "${owner}", name: "${repo}") {
+    ({ owner, repo, number }, index) => `
+      pr${index}: repository(owner: "${owner}", name: "${repo}") {
         pullRequest(number: ${number}) {
           commits(last: 1) {
             nodes {
@@ -243,18 +252,20 @@ export class GithubSource implements Source {
       if (hasFailure) needsRequiredCheck.push({ owner: node.repository.owner.login, repo: node.repository.name, number: node.number });
     }
 
-    const requiredByPr = new Map<number, Set<string>>();
+    // Keyed by owner/repo#number (same composite format as `key()` above), not
+    // bare PR number — a bare-number key would collide across repos.
+    const requiredByPr = new Map<string, Set<string>>();
     if (needsRequiredCheck.length > 0) {
       const res = await this.graphqlRequest(buildRequiredCheckQuery(needsRequiredCheck), {});
       const withRequired = res as unknown as GqlRequiredCheckResponse;
-      for (const { number } of needsRequiredCheck) {
-        const entry = withRequired.data[`pr${number}`];
+      needsRequiredCheck.forEach(({ owner, repo, number }, index) => {
+        const entry = withRequired.data[`pr${index}`];
         const names = new Set<string>();
         for (const ctx of entry?.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []) {
           if (ctx.isRequired) names.add((ctx.__typename === "CheckRun" ? ctx.name : ctx.context) as string);
         }
-        requiredByPr.set(number, names);
-      }
+        requiredByPr.set(`${owner}/${repo}#${number}`, names);
+      });
     }
 
     const login = this.login ?? "";
@@ -270,7 +281,7 @@ export class GithubSource implements Source {
       },
       reviews: node.reviews.nodes.map((r) => ({ author: r.author?.login ?? "", state: r.state, submittedAt: r.submittedAt, body: r.body, url: r.url })),
       comments: node.comments.nodes.map((c) => ({ author: c.author?.login ?? "", createdAt: c.createdAt, body: c.body, url: c.url })),
-      checkRollup: normalizeCheckRollup(node.commits.nodes[0]?.commit.statusCheckRollup ?? null, requiredByPr.get(node.number) ?? new Set()),
+      checkRollup: normalizeCheckRollup(node.commits.nodes[0]?.commit.statusCheckRollup ?? null, requiredByPr.get(key(node)) ?? new Set()),
       backstop: isBackstop,
       viewer: login,
     }));

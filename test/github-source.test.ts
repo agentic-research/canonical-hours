@@ -33,7 +33,11 @@ const window = {
 const routes: Array<[string, unknown]> = [
   ["review:changes_requested", fx("search_backstop")],
   ["updated:>=", fx("search_windowed")],
-  ["pr42:", fx("required_check_isrequired")],
+  // Alias is by array index in needsRequiredCheck, not PR number (fix for the
+  // multi-repo same-number alias collision the final review flagged) — PR #42
+  // is the only entry needing the conditional query in these fixtures, so its
+  // index is always 0.
+  ["pr0:", fx("required_check_isrequired")],
 ];
 
 describe("GithubSource", () => {
@@ -111,7 +115,7 @@ describe("GithubSource", () => {
   });
 
   it("a failing REQUIRED check sets needs_you and emits a check_failed observation", async () => {
-    const source = new GithubSource("t", fakeFetch([...routes, ["pr42:", fx("required_check_isrequired")]]));
+    const source = new GithubSource("t", fakeFetch([...routes, ["pr0:", fx("required_check_isrequired")]]));
     const raws = await source.fetch(window);
     const rec = (raws as Array<{ pr: { number: number } }>).find((r) => r.pr.number === 42)!;
     const event = source.mapToLifecycleEvent(rec);
@@ -129,7 +133,7 @@ describe("GithubSource", () => {
     const bothOptional = {
       data: {
         rateLimit: { remaining: 4989, resetAt: "2026-07-21T12:00:00Z" },
-        pr42: {
+        pr0: {
           commits: { nodes: [ { commit: { statusCheckRollup: { contexts: { nodes: [
             { __typename: "CheckRun", name: "ci-required", conclusion: "FAILURE", isRequired: false },
             { __typename: "CheckRun", name: "ci-optional", conclusion: "FAILURE", isRequired: false },
@@ -137,7 +141,7 @@ describe("GithubSource", () => {
         },
       },
     };
-    const source = new GithubSource("t", fakeFetch([...routes, ["pr42:", bothOptional]]));
+    const source = new GithubSource("t", fakeFetch([...routes, ["pr0:", bothOptional]]));
     const raws = await source.fetch(window);
     const rec = (raws as Array<{ pr: { number: number } }>).find((r) => r.pr.number === 42)!;
     const event = source.mapToLifecycleEvent(rec);
@@ -157,11 +161,98 @@ describe("GithubSource", () => {
     ];
     const trackingFetch: typeof fetch = (async (url, init) => {
       const body = String(init?.body ?? "");
-      if (body.includes("pr42:") || body.includes("pr7:")) conditionalCalled = true;
+      // Check for the conditional query's distinctive content, not a specific
+      // alias name — aliases are by array index, not PR number, so this must
+      // not assume which index (if any) would be used.
+      if (body.includes("isRequired(pullRequestNumber:")) conditionalCalled = true;
       return fakeFetch(noFailuresRoutes)(url, init);
     }) as typeof fetch;
     const source = new GithubSource("t", trackingFetch);
     await source.fetch(window);
     expect(conditionalCalled).toBe(false);
+  });
+
+  it("two PRs with the SAME number in DIFFERENT repos, both failing, resolve required-ness independently", async () => {
+    // Regression test for a real bug the final review caught: aliasing the
+    // conditional query by bare PR number (pr${number}) collides whenever two
+    // different repos both have a PR with that number and a failing check in
+    // the same tick — routine for a source that fetches across every repo the
+    // viewer has touched (every repo has a #1). Aliasing by array index fixes
+    // this; this test proves the fix actually resolves each PR's required
+    // flags independently rather than crashing or cross-contaminating.
+    const sameNumberWindowed = {
+      data: {
+        rateLimit: { remaining: 4999, resetAt: "2026-07-21T12:00:00Z" },
+        viewer: { login: "jamestexas" },
+        search: {
+          nodes: [
+            {
+              __typename: "PullRequest",
+              number: 1,
+              title: "repo-a PR #1",
+              url: "https://github.com/owner-a/repo-a/pull/1",
+              state: "OPEN",
+              mergedAt: null,
+              closedAt: null,
+              repository: { owner: { login: "owner-a" }, name: "repo-a" },
+              reviews: { nodes: [] },
+              comments: { nodes: [] },
+              commits: { nodes: [ { commit: { statusCheckRollup: { contexts: { nodes: [
+                { __typename: "CheckRun", name: "ci", conclusion: "FAILURE" },
+              ] } } } } ] },
+            },
+            {
+              __typename: "PullRequest",
+              number: 1,
+              title: "repo-b PR #1",
+              url: "https://github.com/owner-b/repo-b/pull/1",
+              state: "OPEN",
+              mergedAt: null,
+              closedAt: null,
+              repository: { owner: { login: "owner-b" }, name: "repo-b" },
+              reviews: { nodes: [] },
+              comments: { nodes: [] },
+              commits: { nodes: [ { commit: { statusCheckRollup: { contexts: { nodes: [
+                { __typename: "CheckRun", name: "ci", conclusion: "FAILURE" },
+              ] } } } } ] },
+            },
+          ],
+        },
+      },
+    };
+    const emptyBackstop = {
+      data: {
+        rateLimit: { remaining: 4998, resetAt: "2026-07-21T12:00:00Z" },
+        viewer: { login: "jamestexas" },
+        search: { nodes: [] },
+      },
+    };
+    // Both PRs need the conditional query — order matches insertion order
+    // (windowed nodes first), so repo-a is index 0, repo-b is index 1.
+    const conditionalResponse = {
+      data: {
+        rateLimit: { remaining: 4997, resetAt: "2026-07-21T12:00:00Z" },
+        pr0: { commits: { nodes: [ { commit: { statusCheckRollup: { contexts: { nodes: [
+          { __typename: "CheckRun", name: "ci", isRequired: true },
+        ] } } } } ] } },
+        pr1: { commits: { nodes: [ { commit: { statusCheckRollup: { contexts: { nodes: [
+          { __typename: "CheckRun", name: "ci", isRequired: false },
+        ] } } } } ] } },
+      },
+    };
+    const sameNumberRoutes: Array<[string, unknown]> = [
+      ["updated:>=", sameNumberWindowed],
+      ["review:changes_requested", emptyBackstop],
+      ["pr0:", conditionalResponse],
+    ];
+    const source = new GithubSource("t", fakeFetch(sameNumberRoutes));
+    const raws = (await source.fetch(window)) as Array<{ pr: { repository: string; number: number }; checkRollup: Array<{ name: string; required: boolean }> }>;
+    expect(raws).toHaveLength(2);
+    const repoA = raws.find((r) => r.pr.repository === "owner-a/repo-a")!;
+    const repoB = raws.find((r) => r.pr.repository === "owner-b/repo-b")!;
+    expect(repoA.pr.number).toBe(1);
+    expect(repoB.pr.number).toBe(1);
+    expect(repoA.checkRollup.find((c) => c.name === "ci")?.required).toBe(true);
+    expect(repoB.checkRollup.find((c) => c.name === "ci")?.required).toBe(false);
   });
 });

@@ -204,7 +204,7 @@
     {
       "rule_id": "fan_out_skew",
       "source_id": "test/github-source.test.ts",
-      "count": 3
+      "count": 4
     },
     {
       "rule_id": "fan_out_skew",
