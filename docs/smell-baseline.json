@@ -23,8 +23,18 @@
     },
     {
       "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/lib/github-graphql.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
       "source_id": "agent/lib/invoke-agent.ts",
       "count": 2
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/lib/pr-ref.ts",
+      "count": 1
     },
     {
       "rule_id": "cyclomatic_complexity",
@@ -95,6 +105,11 @@
       "rule_id": "dead_code",
       "source_id": "agent/lib/invoke-agent.ts",
       "count": 2
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/lib/pr-ref.ts",
+      "count": 1
     },
     {
       "rule_id": "dead_code",
@@ -178,11 +193,6 @@
     },
     {
       "rule_id": "fan_out_skew",
-      "source_id": "agent/sources/lectio.ts",
-      "count": 1
-    },
-    {
-      "rule_id": "fan_out_skew",
       "source_id": "agent/sources/merge.ts",
       "count": 1
     },
@@ -204,7 +214,7 @@
     {
       "rule_id": "fan_out_skew",
       "source_id": "test/github-source.test.ts",
-      "count": 4
+      "count": 5
     },
     {
       "rule_id": "fan_out_skew",
@@ -214,7 +224,7 @@
     {
       "rule_id": "fan_out_skew",
       "source_id": "test/mcp-channel.test.ts",
-      "count": 10
+      "count": 9
     },
     {
       "rule_id": "fan_out_skew",
