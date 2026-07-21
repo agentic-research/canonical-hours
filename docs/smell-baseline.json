@@ -79,7 +79,7 @@
     {
       "rule_id": "cyclomatic_complexity",
       "source_id": "agent/sources/source.ts",
-      "count": 1
+      "count": 2
     },
     {
       "rule_id": "cyclomatic_complexity",
@@ -169,7 +169,7 @@
     {
       "rule_id": "dead_code",
       "source_id": "agent/sources/source.ts",
-      "count": 6
+      "count": 8
     },
     {
       "rule_id": "dead_code",
