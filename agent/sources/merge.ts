@@ -47,7 +47,10 @@ export function foldState(observations: Observation[], hints: LifecycleState[]):
   const lastOwn = [...sorted].reverse().find((o) => o.type === "own_reply");
   const unanswered =
     lastOther !== undefined && (lastOwn === undefined || lastOther.at > lastOwn.at);
-  // Check value equality (not reference identity) to survive JSON round-trips in Task 9
+  // Value equality, not reference identity: lastOther and lastVerdict run different
+  // predicates (OTHER_ACTIVITY membership vs. classification === "hard"), so a hard
+  // review_approved and a same-instant soft duplicate of it are two distinct object
+  // instances that must still be recognized as the same logical event (test/merge.test.ts).
   const isSameObservation = lastOther && lastVerdict && lastOther.at === lastVerdict.at && lastOther.type === lastVerdict.type;
   if (unanswered && !isSameObservation) return "needs_you";
   if (hints.includes("needs_you")) return "needs_you";

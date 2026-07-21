@@ -70,35 +70,30 @@ describe("foldState", () => {
     expect(foldState([reviewComment], [])).toBe("needs_you");
   });
 
-  it("clone safety: bare approval survives JSON round-trip", () => {
-    // Regression test for reference-identity bug (Task 5 finding)
-    // Verify that foldState uses value equality, not reference identity,
-    // so the fold result is unchanged even after JSON serialization
-    const o = [
-      obs({ type: "review_approved", at: "2026-07-16T14:00:00Z" }),
-    ];
-    const originalResult = foldState(o, []);
-
-    // Clone via JSON round-trip (simulates Task 9 cross-queue/cache boundary)
-    const clonedO = JSON.parse(JSON.stringify(o)) as Observation[];
-    const clonedResult = foldState(clonedO, []);
-
-    expect(clonedResult).toBe(originalResult);
-    expect(clonedResult).toBe("resolved");
-  });
-
-  it("clone safety: unanswered comment is needs_you even after cloning", () => {
-    // Verify observation-key comparison survives object cloning
-    const o = [
-      obs({ type: "comment", at: "2026-07-16T12:00:00Z" }),
-    ];
-    const originalResult = foldState(o, []);
-
-    const clonedO = JSON.parse(JSON.stringify(o)) as Observation[];
-    const clonedResult = foldState(clonedO, []);
-
-    expect(clonedResult).toBe(originalResult);
-    expect(clonedResult).toBe("needs_you");
+  it("hard approval + a same-instant soft duplicate (distinct object instances) folds to resolved, not needs_you", () => {
+    // Regression test for the reference-identity bug (Task 5 finding), replacing
+    // two earlier "clone safety" tests that didn't actually exercise it (proven by
+    // reverting the fix and re-running them — both still passed, see
+    // canonical-hours-f325c3). Cloning the whole input array before calling
+    // foldState doesn't cause lastOther/lastVerdict to diverge in reference,
+    // because both are derived from elements of that SAME cloned array.
+    //
+    // The real divergence: lastOther (OTHER_ACTIVITY membership, ignores
+    // classification) and lastVerdict (classification === "hard" only) run
+    // DIFFERENT predicates over the same sorted array. If the same real-world
+    // review_approved event is represented by two SEPARATE object instances at
+    // the same `at` — a soft duplicate alongside the hard verdict, which
+    // upstream sources can produce before mergeEvents' dedup Map ever runs —
+    // lastOther can select the soft instance while lastVerdict selects the hard
+    // one. Reference equality (the pre-fix check) then wrongly treats this as
+    // unanswered "other activity" (needs_you) for what is really just a bare
+    // approval; value equality (at + type) correctly recognizes them as the
+    // same logical event.
+    const at = "2026-07-16T14:00:00Z";
+    const hardApproval = obs({ type: "review_approved", classification: "hard", at });
+    const softDuplicate = obs({ type: "review_approved", classification: "soft", at });
+    expect(hardApproval).not.toBe(softDuplicate); // genuinely distinct object instances
+    expect(foldState([hardApproval, softDuplicate], [])).toBe("resolved");
   });
 });
 
