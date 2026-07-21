@@ -18,6 +18,11 @@
     },
     {
       "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/lib/bot-review-dismissal.ts",
+      "count": 5
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
       "source_id": "agent/lib/config.ts",
       "count": 1
     },
@@ -35,6 +40,11 @@
       "rule_id": "cyclomatic_complexity",
       "source_id": "agent/lib/pr-ref.ts",
       "count": 1
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "agent/lib/thread-resolution.ts",
+      "count": 6
     },
     {
       "rule_id": "cyclomatic_complexity",
@@ -73,6 +83,11 @@
     },
     {
       "rule_id": "cyclomatic_complexity",
+      "source_id": "test/bot-review-dismissal.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
       "source_id": "test/github-source.test.ts",
       "count": 1
     },
@@ -80,6 +95,11 @@
       "rule_id": "cyclomatic_complexity",
       "source_id": "test/mcp-channel.test.ts",
       "count": 7
+    },
+    {
+      "rule_id": "cyclomatic_complexity",
+      "source_id": "test/thread-resolution.test.ts",
+      "count": 1
     },
     {
       "rule_id": "cyclomatic_complexity",
@@ -98,6 +118,11 @@
     },
     {
       "rule_id": "dead_code",
+      "source_id": "agent/lib/bot-review-dismissal.ts",
+      "count": 3
+    },
+    {
+      "rule_id": "dead_code",
       "source_id": "agent/lib/config.ts",
       "count": 1
     },
@@ -110,6 +135,11 @@
       "rule_id": "dead_code",
       "source_id": "agent/lib/pr-ref.ts",
       "count": 1
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/lib/thread-resolution.ts",
+      "count": 6
     },
     {
       "rule_id": "dead_code",
@@ -162,6 +192,21 @@
       "count": 1
     },
     {
+      "rule_id": "duplicate_code",
+      "source_id": "test/bot-review-dismissal.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "duplicate_code",
+      "source_id": "test/thread-resolution.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "test/bot-review-dismissal.test.ts",
+      "count": 1
+    },
+    {
       "rule_id": "duplicate_definitions",
       "source_id": "test/github-source.test.ts",
       "count": 4
@@ -173,6 +218,11 @@
     },
     {
       "rule_id": "duplicate_definitions",
+      "source_id": "test/thread-resolution.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "duplicate_definitions",
       "source_id": "test/tick.test.ts",
       "count": 2
     },
@@ -180,6 +230,11 @@
       "rule_id": "duplicate_definitions",
       "source_id": "test/weather-source.test.ts",
       "count": 2
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "agent/lib/thread-resolution.ts",
+      "count": 1
     },
     {
       "rule_id": "fan_out_skew",
