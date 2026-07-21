@@ -559,10 +559,45 @@ mock — talking over an actual HTTP round-trip on an ephemeral port):
 
 This is a different verification mode than the `eve dev` bullets
 above: it proves the MCP protocol layer and the channel's own route
-handlers work correctly against a real client, but it does not run
-through eve's own dev server — whether eve actually mounts and routes
-`/mcp` correctly inside `eve dev` (the way the REST routes above were
-confirmed via live `curl`) is still open, see below.
+handlers work correctly against a real client, but on its own it
+would not catch a build- or routing-layer problem specific to eve's
+handling of this channel — that gap is closed below.
+
+**Proven, via a live `eve dev` process + curl (canonical-hours-fb3734):**
+
+- `/mcp` mounts and routes correctly through eve's own dev server, not
+  just the e2e test's direct-handler bypass above: `POST /mcp`
+  `initialize` returns a real JSON-RPC response with
+  `serverInfo.name: "canonical-hours"`; `tools/list` returns both
+  `get_board` and `trigger_tick` with real schemas; `GET /mcp` returns
+  `405` as designed. Run with dummy `LECTIO_URL`/`GITHUB_TOKEN`/
+  `ANTHROPIC_API_KEY` (no real `.env` in this repo) — `get_board`
+  works fully, `trigger_tick` correctly surfaces the dummy credentials
+  as real failures rather than crashing.
+
+**Proven, against cloister's real resolver (canonical-hours-fb3f87):**
+
+- `server.json` resolves cleanly through cloister's actual `task add` /
+  `scripts/resolve-inputs.mjs` pipeline (tested against
+  `agentic-research/cloister` directly, not just cloister's docs):
+  `node --import tsx scripts/cli-add.mjs
+  file:///…/canonical-hours/server.json --name canonical-hours`
+  produces a `[[generated_backends]]` entry
+  (`claims=[]`, `dynamicTools=true`) and logs exactly the fallback
+  message the design predicted — `"no _meta.art.cloister/v1 — using
+  single-backend fallback."` Confirms the no-`groups`-key fallback
+  claim against real code, not just cloister's authoring docs.
+  - Two things this does *not* prove, found while verifying it:
+    a `file://` ref must point directly at the `server.json` file
+    (a directory ref fails `EISDIR` — cloister's resolver has no
+    directory/index resolution), and `urlBinding`/`serviceBinding`
+    (how cloister would actually *reach* a running canonical-hours
+    instance) are operator-set fields on cloister's `cluster.toml`,
+    not auto-derived from `server.json`'s `remotes[]` — they were
+    empty in this run. So "resolves cleanly" proves the registry
+    document's shape is right; it does not yet prove cloister can
+    route an actual tool call to canonical-hours. Tracked as
+    `canonical-hours-f17ca7`.
 
 **Not yet verified — needs a real deployment:**
 
@@ -591,20 +626,12 @@ confirmed via live `curl`) is still open, see below.
   which is exactly the shape a production Vercel Cron misfire (or a
   redeploy racing a scheduled tick) could take. Untested because there
   is no deployment to test it against yet.
-- **Whether `eve dev`/the real Nitro build actually mounts `/mcp`
-  correctly.** The MCP e2e test above exercises the channel's route
-  handlers directly (via `node:http`), the same technique the REST
-  routes' own unit tests use — it never routes a request through eve's
-  own dev server or a production build, so it can't catch a build- or
-  routing-layer problem specific to eve's handling of this channel
-  (e.g. a Nitro quirk with `POST`+`GET` on the same extensionless
-  path). Needs the same live `eve dev` + `curl`/real-MCP-client smoke
-  test the REST routes already got (see the `Proven` bullets above and
-  eve-api-notes.md §3).
-- **`cloister` registration end-to-end.** `server.json` has only been
-  validated for shape (Task 4's tests parse and assert its fields) —
-  it has never actually been fed to `cloister add` or an equivalent
-  registration flow against a running canonical-hours instance.
+- **Whether cloister can actually route a tool call to canonical-hours.**
+  The resolve step is proven (see above) — the registry document's
+  shape is right. What's not proven: `urlBinding` wired to a real
+  running instance, cloister's cluster actually up, and a real
+  `get_board`/`trigger_tick` call round-tripping through cloister and
+  back. Tracked as `canonical-hours-f17ca7`.
 - **fly.io and Vercel deployment themselves.** Deliberately deferred —
   there is no CI workflow and no deployment configuration in this repo
   yet. Everything above has only ever been exercised against a local
@@ -621,11 +648,9 @@ local `bd list` — see note below):
 - `canonical-hours-dc68b5` — a recurring false-positive IDE diagnostic
   ("Cannot find module") on freshly-created files during development;
   confirmed not a real bug, tracked so it doesn't get re-investigated.
-- `canonical-hours-fb3734` — verifying `/mcp` actually mounts correctly
-  under real `eve dev`/a production Nitro build (the MCP surface's
-  version of the material-path-verification gap above).
-- `canonical-hours-fb3f87` — verifying `server.json` against a real
-  `cloister add`/registration flow, not just its own shape tests.
+- `canonical-hours-f17ca7` — wiring `urlBinding` and proving an actual
+  tool call routes through cloister end to end (the resolve step is
+  already proven, see above).
 
 (Aside for contributors: `bd list` in this repo currently reports zero
 issues even though the beads above exist and are correctly scoped —
