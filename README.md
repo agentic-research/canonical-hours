@@ -56,7 +56,11 @@ optional/non-required check failing, or any check merely still
 running, does not count). GitHub is also the source for this: the same
 GraphQL fetch reads each PR's check-run rollup, and a real failure
 surfaces as a `check_failed` board entry alongside whichever review
-activity is also present.
+activity is also present. The board also carries a derived
+`merge_ready` boolean per PR — `true` when the PR is approved (or needs
+no review), has no failing required checks, and has no unresolved review
+threads — computed deterministically, never folded into a lifecycle
+state.
 
 Two generalizations sit on top of that pipeline. First, the tick
 outcome is three-way: `all_clear` (nothing material — templated board,
@@ -92,12 +96,15 @@ routes above, it also speaks
 servers behind one endpoint) or any other MCP client — no separate
 process, no polling loop on the client side.
 
-Two tools, mirroring what's already exposed over REST:
+Four tools — the first two mirror what's already exposed over REST; the
+last two are opt-in mutating actions that **never fire from the tick**:
 
 | Tool | Kind | Behavior |
 | --- | --- | --- |
 | `get_board` | read-only | Same data as `GET /board` / `GET /board/md` — the current board as structured JSON plus rendered markdown. Never triggers a tick. |
 | `trigger_tick` | action | Runs a tick now (the same `prBoardTick()` the cron schedule calls) and returns the real six-way `TickResult`, including `skipped_overlap` — a legitimate result, not an error, when a tick is already in flight. |
+| `resolve_addressed_review_threads` | action | Resolves each unresolved review thread on a PR whose file was changed in a commit landed after the thread's originating review (mechanical eligibility, ported from `watch-pr`). Mutates GitHub; call with a PR as `owner/repo#123` or a github.com PR URL. |
+| `dismiss_stale_bot_reviews` | action | Dismisses each `CHANGES_REQUESTED` review from a bot account where a fix commit landed after it (bot = GraphQL `__typename` `Bot` or a `[bot]`-suffixed login, never a bare `-bot`). Mutates GitHub; same PR-reference input. |
 
 `server.json` at the repo root is the registry document a cloister
 `cloister add` (or equivalent MCP client registration) consumes: it
@@ -127,8 +134,11 @@ transport and tenancy details.
 - `agent/lib/tick.ts`, `agent/schedules/pr-board.ts`,
   `agent/channels/{tick,board}.ts` — the scheduled tick and its wiring.
 - `agent/channels/mcp.ts`, `server.json` — the MCP surface (`get_board`,
-  `trigger_tick`) and its registry document, for cloister and other MCP
-  clients.
+  `trigger_tick`, `resolve_addressed_review_threads`,
+  `dismiss_stale_bot_reviews`) and its registry document, for cloister
+  and other MCP clients. The two action tools' mechanical eligibility
+  lives in `agent/lib/{thread-resolution,bot-review-dismissal}.ts`,
+  sharing `agent/lib/{pr-ref,github-graphql}.ts`.
 - `canonical-hours.toml`, `agent/lib/config.ts` — committed non-secret
   config (tick cron, weather location, GitHub GraphQL rate-limit
   backoff threshold) and its loader; secrets stay in `.env`.

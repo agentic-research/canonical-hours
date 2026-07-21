@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +7,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import mcpChannel, { registerGetBoardTool, registerTriggerTickTool } from "../agent/channels/mcp";
+import mcpChannel, {
+  registerGetBoardTool,
+  registerTriggerTickTool,
+  registerResolveThreadsTool,
+  registerDismissBotReviewsTool,
+} from "../agent/channels/mcp";
+import * as threadResolution from "../agent/lib/thread-resolution";
+import * as botReviewDismissal from "../agent/lib/bot-review-dismissal";
 import { Board, BoardSchema, renderBoardMd, writeBoardAtomic } from "../agent/lib/board";
 import { runTick, _resetTickGuardForTests } from "../agent/lib/tick";
 import type { InvokeAgentRuntime } from "../agent/lib/invoke-agent";
@@ -185,6 +192,56 @@ describe("trigger_tick tool", () => {
   });
 });
 
+describe("resolve_addressed_review_threads tool", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("parses the pr input and delegates to resolveAddressedThreads with the right ref", async () => {
+    const spy = vi
+      .spyOn(threadResolution, "resolveAddressedThreads")
+      .mockResolvedValue({ resolved: ["t1"], skipped: [], failed: [] });
+    const client = await connect(registerResolveThreadsTool);
+    const result = await client.callTool({ name: "resolve_addressed_review_threads", arguments: { pr: "o/r#1" } });
+    expect(result.isError).toBeFalsy();
+    expect(spy).toHaveBeenCalledWith({ owner: "o", repo: "r", number: 1 }, expect.any(String), fetch);
+    expect(result.structuredContent).toEqual({ resolved: ["t1"], skipped: [], failed: [] });
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content[0].text).toBe("resolved 1, skipped 0, failed 0");
+  });
+
+  it("returns isError on an invalid pr reference (never touches the network)", async () => {
+    const spy = vi.spyOn(threadResolution, "resolveAddressedThreads");
+    const client = await connect(registerResolveThreadsTool);
+    const result = await client.callTool({ name: "resolve_addressed_review_threads", arguments: { pr: "not a pr" } });
+    expect(result.isError).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("dismiss_stale_bot_reviews tool", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("parses the pr input and delegates to dismissStaleBotReviews with the right ref", async () => {
+    const spy = vi
+      .spyOn(botReviewDismissal, "dismissStaleBotReviews")
+      .mockResolvedValue({ dismissed: ["r1"], skipped: [], failed: [] });
+    const client = await connect(registerDismissBotReviewsTool);
+    const result = await client.callTool({ name: "dismiss_stale_bot_reviews", arguments: { pr: "o/r#1" } });
+    expect(result.isError).toBeFalsy();
+    expect(spy).toHaveBeenCalledWith({ owner: "o", repo: "r", number: 1 }, expect.any(String), fetch);
+    expect(result.structuredContent).toEqual({ dismissed: ["r1"], skipped: [], failed: [] });
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content[0].text).toBe("dismissed 1, skipped 0, failed 0");
+  });
+
+  it("returns isError on an invalid pr reference (never touches the network)", async () => {
+    const spy = vi.spyOn(botReviewDismissal, "dismissStaleBotReviews");
+    const client = await connect(registerDismissBotReviewsTool);
+    const result = await client.callTool({ name: "dismiss_stale_bot_reviews", arguments: { pr: "not a pr" } });
+    expect(result.isError).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
 /** Pull an HTTP route handler off the channel's public `routes` (eve's Channel type). */
 function routeHandler(method: "GET" | "POST"): (req: Request, args: unknown) => Promise<Response> {
   const route = mcpChannel.routes.find((r) => r.method === method && r.path === "/mcp");
@@ -303,12 +360,17 @@ async function connectHttpClient(url: string): Promise<Client> {
 describe("e2e: real SDK client over streamable-HTTP", () => {
   beforeEach(() => _resetTickGuardForTests());
 
-  it("initialize succeeds; tools/list returns exactly get_board and trigger_tick with schemas", async () => {
+  it("initialize succeeds; tools/list returns all four tools with schemas", async () => {
     const harness = await startHarness();
     const client = await connectHttpClient(harness.url);
     try {
       const tools = await client.listTools();
-      expect(tools.tools.map((t) => t.name).sort()).toEqual(["get_board", "trigger_tick"]);
+      expect(tools.tools.map((t) => t.name).sort()).toEqual([
+        "dismiss_stale_bot_reviews",
+        "get_board",
+        "resolve_addressed_review_threads",
+        "trigger_tick",
+      ]);
       for (const tool of tools.tools) {
         expect(tool.inputSchema).toBeDefined();
         expect(tool.outputSchema).toBeDefined();

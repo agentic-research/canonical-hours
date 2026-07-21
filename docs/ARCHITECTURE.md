@@ -95,8 +95,11 @@ graph TB
 - **`agent/channels/mcp.ts`** — the protocol-conformant surface: a
   streamable-HTTP MCP endpoint at `POST /mcp` exposing `get_board`
   (backed by the same `readBoard()`/`renderBoardMd()` as the REST
-  routes above) and `trigger_tick` (calls `prBoardTick()` directly, the
-  same entry point `agent/schedules/pr-board.ts` calls). See
+  routes above), `trigger_tick` (calls `prBoardTick()` directly, the
+  same entry point `agent/schedules/pr-board.ts` calls), and two opt-in
+  action tools — `resolve_addressed_review_threads` and
+  `dismiss_stale_bot_reviews` — that mutate GitHub on explicit call and
+  are never fired from the automatic tick. See
   [The MCP surface](#the-mcp-surface) below.
 
 For the eve-specific API facts behind these choices (schedule/channel
@@ -280,7 +283,10 @@ that bundles a set of MCP servers behind one endpoint for its own
 agents to call — which only knows how to consume MCP, not arbitrary
 REST shapes.
 
-### Two tools, one guard
+### The tools and the tick guard
+
+Only `trigger_tick` (and the cron) reach `runTick`; the two action tools
+mutate GitHub directly and never enter this path.
 
 ```mermaid
 graph LR
@@ -309,6 +315,13 @@ graph LR
   firing-and-forgetting. This is a second *trigger* for the same tick
   logic, not a separate code path — `agent/lib/tick.ts`, `board.ts`,
   and the cron schedule are untouched.
+- **`resolve_addressed_review_threads`** (action) and
+  **`dismiss_stale_bot_reviews`** (action) — the two mutating tools,
+  covered in [Action tools and merge_ready](#action-tools-and-merge_ready)
+  below. Both are strictly opt-in: they mutate GitHub only when a caller
+  invokes them explicitly, and **neither is ever reachable from
+  `runTick`** — same trust boundary as `trigger_tick`, not the automatic
+  tick's.
 
 The load-bearing property that makes a second trigger safe with zero
 new concurrency code: the in-process overlap guard
@@ -325,6 +338,60 @@ tick is a defined, healthy outcome already first-class in the
 tick is actually running. The same guard protects the mirror case (a
 cron tick landing mid-MCP-tick) and two concurrent MCP calls, for the
 same reason.
+
+### Action tools and merge_ready
+
+The board and the two action tools fold in the mechanical CI/review
+signals ported from
+[`watch-pr.md`](../../rosary/agents/skills/watch-pr.md) — deterministic
+merge-readiness reporting plus its two mutating behaviors — without
+adding any new LLM or judgment surface, and without either mutation ever
+firing from the tick.
+
+**`merge_ready`** is a derived, per-PR boolean on the board
+(`BoardPrSchema.merge_ready`). It is `true` iff all three of
+`watch-pr.md` §3's explicit conditions hold: `reviewDecision` is
+`APPROVED` *or* `null` (null = the repo requires no review), there are
+no failing branch-protection-*required* checks, and there are no
+unresolved review threads. It is deliberately **derived, not folded**:
+it is computed in `GithubSource.mapToLifecycleEvent` from
+`reviewDecision` + the required-check rollup + the unresolved-thread
+list and passed through to the board via a new `extra` bag on
+`LifecycleEvent`/`MergedArtifact` — it introduces **no new
+`LifecycleState`, no new `Observation` type, and no `foldState`
+change**. It is intentionally *not* GitHub's own broader
+`mergeStateStatus` (fetched for visibility only), because that field
+also folds in merge-conflict state that `watch-pr`'s three-condition
+rule does not consider.
+
+**`resolve_addressed_review_threads`** (`agent/lib/thread-resolution.ts`)
+resolves an unresolved review thread iff its file was changed in a
+commit that landed *after* the thread's originating review — the
+mechanical eligibility from `watch-pr.md` §2c, no judgment call.
+**`dismiss_stale_bot_reviews`** (`agent/lib/bot-review-dismissal.ts`)
+dismisses a `CHANGES_REQUESTED` review from a bot account iff a fix
+commit landed after it (§2d). Bot detection is the GraphQL author's
+`__typename === "Bot"` *or* a `[bot]`-suffixed login — **never** a bare
+`-bot` suffix, which would collide with human usernames (`watch-pr.md`'s
+own explicit warning). Both tools continue past an individual mutation
+failure — a failing `resolveReviewThread`/`dismissPullRequestReview`
+is recorded in the result's `failed` array and the run moves to the next
+thread/review rather than aborting — and both return a
+`{ resolved|dismissed, skipped, failed }` structured result.
+
+**GraphQL vs. REST split.** Both libraries read thread/review state and
+perform their mutations over GraphQL (`reviewThreads`/`reviews`,
+`resolveReviewThread`/`dismissPullRequestReview`), through the shared
+stateless `graphqlPost` helper in `agent/lib/github-graphql.ts`. The one
+thing they reach for REST is the per-commit changed-file listing
+(`GET /repos/{owner}/{repo}/pulls/{n}/commits` then
+`GET /repos/{owner}/{repo}/commits/{sha}` for each commit's `files[]`) —
+GraphQL exposes no clean equivalent for a commit's changed-file set,
+which the "was this thread's file touched after the review" eligibility
+check needs. Both tools take their target PR as a call argument
+(`owner/repo#123` or a github.com PR URL, parsed by
+`agent/lib/pr-ref.ts`) and reuse `process.env.GITHUB_TOKEN` exactly as
+the tick already does — no new config surface.
 
 ### Transport
 
@@ -359,9 +426,9 @@ resolves. It declares:
   sandbox, and `external`/untrusted is the correct default for a
   standing Node process cloister only ever reaches over the network,
   per cloister's own tenancy docs. No `groups` partitioning is
-  declared — two tools don't need splitting into separate cloister
-  backends, and cloister's resolver falls back to one coarse backend
-  for exactly this case.
+  declared — this small tool set doesn't need splitting into separate
+  cloister backends, and cloister's resolver falls back to one coarse
+  backend for exactly this case.
 
 ### Pointing a client at it
 
@@ -587,7 +654,9 @@ the real `@modelcontextprotocol/sdk` `Client` +
 mock — talking over an actual HTTP round-trip on an ephemeral port):
 
 - `initialize` and `tools/list` succeed over real streamable-HTTP and
-  report exactly `get_board` and `trigger_tick`, each with a schema.
+  report exactly the four tools (`get_board`, `trigger_tick`,
+  `resolve_addressed_review_threads`, `dismiss_stale_bot_reviews`), each
+  with a schema.
 - `get_board` round-trips a real written board (structured content
   matches `BoardSchema`, text content matches `renderBoardMd()`
   byte-for-byte) and correctly returns `board: null` with no error when

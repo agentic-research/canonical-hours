@@ -7,6 +7,9 @@ import { BoardSchema, readBoard, renderBoardMd } from "../lib/board";
 import { prBoardTick } from "../lib/tick-entry";
 import type { TickResult } from "../lib/tick";
 import type { InvokeAgentRuntime } from "../lib/invoke-agent";
+import { resolveAddressedThreads } from "../lib/thread-resolution";
+import { dismissStaleBotReviews } from "../lib/bot-review-dismissal";
+import { parsePrRef } from "../lib/pr-ref";
 
 /**
  * `get_board` — read-only MCP view of the existing board contract.
@@ -98,6 +101,99 @@ export function registerTriggerTickTool(
   );
 }
 
+const RESOLVE_RESULT_SCHEMA = {
+  resolved: z.array(z.string()),
+  skipped: z.array(z.string()),
+  failed: z.array(z.object({ id: z.string(), error: z.string() })),
+};
+
+/**
+ * `resolve_addressed_review_threads` — mechanical eligibility ported from
+ * watch-pr.md §2c: resolves an unresolved thread iff its file changed in a
+ * commit landed after the thread's originating review. Never called from
+ * the tick — opt-in only, same trust boundary as `trigger_tick`.
+ */
+export function registerResolveThreadsTool(server: McpServer): void {
+  server.registerTool(
+    "resolve_addressed_review_threads",
+    {
+      description:
+        "Resolve unresolved GitHub PR review threads whose file was changed in a commit " +
+        "landed after the thread's originating review. Mechanical eligibility only, no " +
+        "judgment call — mutates GitHub. Input: a PR as 'owner/repo#123' or a github.com PR URL.",
+      inputSchema: { pr: z.string() },
+      outputSchema: RESOLVE_RESULT_SCHEMA,
+    },
+    async ({ pr }) => {
+      try {
+        const ref = parsePrRef(pr);
+        const result = await resolveAddressedThreads(ref, process.env.GITHUB_TOKEN ?? "", fetch);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `resolved ${result.resolved.length}, skipped ${result.skipped.length}, failed ${result.failed.length}`,
+            },
+          ],
+          structuredContent: { ...result },
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }],
+          isError: true,
+        };
+      }
+    },
+  );
+}
+
+const DISMISS_RESULT_SCHEMA = {
+  dismissed: z.array(z.string()),
+  skipped: z.array(z.string()),
+  failed: z.array(z.object({ id: z.string(), error: z.string() })),
+};
+
+/**
+ * `dismiss_stale_bot_reviews` — mechanical eligibility ported from
+ * watch-pr.md §2d: dismisses a CHANGES_REQUESTED bot review iff a fix commit
+ * landed after it. Bot detection is __typename === "Bot" or a [bot]-suffixed
+ * login — never a bare "-bot" suffix (human usernames can collide). Never
+ * called from the tick — opt-in only, same trust boundary as `trigger_tick`.
+ */
+export function registerDismissBotReviewsTool(server: McpServer): void {
+  server.registerTool(
+    "dismiss_stale_bot_reviews",
+    {
+      description:
+        "Dismiss stale CHANGES_REQUESTED reviews from bot accounts where a fix commit landed " +
+        "after the review. Mechanical eligibility only, no judgment call — mutates GitHub. " +
+        "Input: a PR as 'owner/repo#123' or a github.com PR URL.",
+      inputSchema: { pr: z.string() },
+      outputSchema: DISMISS_RESULT_SCHEMA,
+    },
+    async ({ pr }) => {
+      try {
+        const ref = parsePrRef(pr);
+        const result = await dismissStaleBotReviews(ref, process.env.GITHUB_TOKEN ?? "", fetch);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `dismissed ${result.dismissed.length}, skipped ${result.skipped.length}, failed ${result.failed.length}`,
+            },
+          ],
+          structuredContent: { ...result },
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text" as const, text: err instanceof Error ? err.message : String(err) }],
+          isError: true,
+        };
+      }
+    },
+  );
+}
+
 /**
  * Hand-built app principal (docs/eve-api-notes.md fact 2 + eve's
  * SessionAuthContext): route handlers get `receive` in their args but NOT
@@ -114,11 +210,13 @@ const appAuth = {
   principalType: "runtime",
 } satisfies SessionAuthContext;
 
-/** Both tools on a fresh McpServer, production wiring (real prBoardTick). */
+/** All four tools on a fresh McpServer, production wiring (real prBoardTick). */
 export function buildMcpServer(runtime: InvokeAgentRuntime): McpServer {
   const server = new McpServer({ name: "canonical-hours", version: "0.1.0" });
   registerGetBoardTool(server);
   registerTriggerTickTool(server, runtime);
+  registerResolveThreadsTool(server);
+  registerDismissBotReviewsTool(server);
   return server;
 }
 
