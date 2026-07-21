@@ -30,12 +30,10 @@ curl http://127.0.0.1:2000/board/md    # human-readable
 
 ## Status
 
-Working and locally verified — not yet deployed anywhere. Every tick
-path (all-clear, degraded, and material/LLM-triaged) has been exercised
-end to end against `eve dev`, but there is no CI workflow and no fly.io
-or Vercel deployment yet. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#whats-verified-and-whats-not)
-for exactly what's proven and what isn't.
+Every tick path (all-clear, degraded-fallback, material/LLM-triaged)
+and the MCP surface run end to end against `eve dev`. Runs locally
+today; a deployment target (fly.io or Vercel) is next. Full verification
+matrix: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#whats-verified-and-whats-not).
 
 ## How it works
 
