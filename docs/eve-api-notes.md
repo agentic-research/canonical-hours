@@ -6,6 +6,13 @@ didn't spell out an import path verbatim, by reading the installed package's
 `package.json` `exports` map and the matching `.d.ts` file. Not sourced from
 public docs. These are the four facts later tasks depend on.
 
+Bumped to eve 0.27.0 (canonical-hours-447a03): the 0.25.2 → 0.27.0 changelog
+entries are all patch/minor changes to the TUI, Vercel/Nuxt deploy path,
+compaction, and channel adapters — nothing touching schedules, MCP tool
+registration, or the human-in-the-loop/approval APIs this doc describes.
+The facts below were re-verified against the current install and still
+hold.
+
 ## 1. Schedules (`agent/schedules/`) — used in Task 9
 
 Source: `node_modules/eve/docs/schedules.mdx`
