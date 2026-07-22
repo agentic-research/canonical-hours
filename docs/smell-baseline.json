@@ -228,6 +228,11 @@
     },
     {
       "rule_id": "god_file",
+      "source_id": "agent/lib/sources/lectio.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "god_file",
       "source_id": "agent/lib/sources/linear.ts",
       "count": 1
     },

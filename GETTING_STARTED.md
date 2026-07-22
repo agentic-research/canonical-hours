@@ -12,10 +12,14 @@ How to go from zero to a running canonical-hours PR board.
 - A GitHub personal access token with `repo` scope (read access to your PRs
   is enough; the two action tools below need write access to review
   threads/reviews on repos you want them to mutate).
-- If you want the two mutating action tools reachable at all, an
-  `MCP_ACTION_TOKEN` — they're default-deny (canonical-hours-49ba33):
-  unset means every call is refused before it ever touches GitHub;
-  callers must send a matching `Authorization: Bearer` header.
+- If you want the two mutating action tools (`resolve_addressed_review_threads`,
+  `dismiss_stale_bot_reviews`) reachable at all, an `MCP_ACTION_TOKEN` —
+  they're default-deny (canonical-hours-49ba33): unset means every call is
+  refused before it ever touches GitHub; callers must send a matching
+  `Authorization: Bearer` header. This is independent of `GITHUB_TOKEN`'s
+  scope above — one controls whether a caller may invoke the tool at all,
+  the other controls whether the tool's own GitHub call succeeds once
+  invoked. You need both for the tools to actually work end to end.
 - Optionally, access to a running [lectio](../lectio) instance
   (`LECTIO_URL` + `LECTIO_TOKEN`) — canonical-hours reads authored-PR
   *activity* from lectio and review *verdicts* from GitHub, and merges
