@@ -118,3 +118,7 @@ gate actually block a bad commit locally instead of only running in CI.
   hard/soft classification split, why the tick is stateless, the
   zero-LLM-call short-circuit, and a worked example tracing one PR through
   the whole pipeline.
+- **Writing your own plugin (a new data source)?** See
+  [docs/ARCHITECTURE.md § The second source kind: snapshots](docs/ARCHITECTURE.md#the-second-source-kind-snapshots) —
+  `agent/lib/sources/weather.ts` is the worked example, ~50 lines, copy it
+  first.

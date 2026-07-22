@@ -159,10 +159,14 @@ thin wrapper around two special cases:
   normalizes into that shape. Nothing downstream of `mapToLifecycleEvent`
   ever sees a lectio- or GitHub-specific field.
 - **Priority policy is a merge-time concern, not an adapter concern.**
-  "GitHub is the sole hard source, lectio fills enrichment, hard beats
-  soft on conflict" is a rule `agent/lib/sources/merge.ts` applies across
-  *whichever* sources are registered — it's not encoded in either
-  adapter. `sources/lectio.ts` and `sources/github.ts` don't know about
+  "Hard beats soft on conflict, regardless of which registered sources
+  happen to be hard" is a rule `agent/lib/sources/merge.ts` applies across
+  *whichever* sources are registered — it's not encoded in any one
+  adapter, and it's not a privilege GitHub specifically holds: each
+  adapter classifies its own observations, and today GitHub and Linear
+  both emit `hard` (lectio doesn't — see
+  [Why lectio is soft-only](#why-lectio-is-soft-only) below). `sources/lectio.ts`
+  and `sources/github.ts` don't know about
   each other or their relative priority; they just each answer "what do
   you see, and how sure are you." That's what makes the earlier claim —
   "a third source later is a registry entry, not a rewrite" — actually
@@ -204,15 +208,20 @@ abstraction from the last paragraph: loading it is one line in
 `tick-entry.ts` (`sources.push(...(await loadPrivateSources(...)))`),
 nothing in `merge.ts`/`board.ts`/`tick.ts` changed to support it.
 
-The two live adapters are asymmetric on purpose, which is itself worth
-understanding as a design choice rather than an inconsistency: lectio
-(`sources/lectio.ts`) is soft-only — discovered mid-build that its
-`memory_authored_activity` tool has no way to expose a review's verdict,
-only that something happened (see `docs/lectio-api-notes.md`) — while
-GitHub (`sources/github.ts`) is the sole producer of `hard`
-classifications. A future adapter isn't obligated to pick a side; the
-protocol doesn't care whether a source ever emits `hard` observations,
-only that it's honest about which it's asserting.
+The live adapters aren't symmetric, which is itself worth
+understanding as a per-source design choice rather than an
+inconsistency: lectio (`sources/lectio.ts`) is soft-only — discovered
+mid-build that its `memory_authored_activity` tool has no way to
+expose a review's verdict, only that something happened (see
+`docs/lectio-api-notes.md`) — while GitHub (`sources/github.ts`) and
+Linear (`sources/linear.ts`) both emit `hard` observations for the
+verdicts/state changes they're each authoritative for (GitHub: review
+verdicts, merges, closes; Linear: a completed/canceled issue's hard
+close). Neither owns the classification exclusively — hard/soft is a
+per-observation call each adapter makes about its own data, not a
+privilege one provider holds. A future adapter isn't obligated to pick
+a side; the protocol doesn't care whether a source ever emits `hard`
+observations, only that it's honest about which it's asserting.
 
 ## The second source kind: snapshots
 
@@ -240,6 +249,16 @@ The registry invariant extends to the new kind: adding a second
 snapshot source is a new `agent/lib/sources/*.ts` module plus one entry in
 `tick-entry.ts`'s `snapshotSources` array. If it ever requires editing
 `tick.ts` or the agent's instructions, the abstraction has leaked.
+
+**`agent/lib/sources/weather.ts` is the worked example** — read it
+before writing a new source of either kind. It's the smallest complete
+implementation in the repo (one raw-shape zod schema, `fetch()`,
+`freshness()`, ~50 lines total) because `SnapshotSource` is the
+smaller of the two protocols; the activity-fold `Source` protocol
+above has the same shape (own schema, own failure boundary, no
+knowledge of other sources) plus `mapToLifecycleEvent`. Copy
+`weather.ts` first, then look at `linear.ts` once you actually need
+lifecycle folding.
 
 ## The second artifact kind: Linear issues
 
@@ -614,10 +633,15 @@ deployed; only the address a client dials.
 
 ## Design decisions
 
-### Why GitHub is the sole hard-verdict source
+### Why lectio is soft-only
 
 This wasn't a design assumption — it was discovered mid-build via a
-live MCP call and corrected. lectio's `memory_authored_activity` tool
+live MCP call and corrected. It's a fact about lectio's own upstream
+API specifically, not a rule that only GitHub is allowed to be hard —
+any adapter that can genuinely tell verdicts apart is free to emit
+`hard` (Linear does — see
+[The second artifact kind: Linear issues](#the-second-artifact-kind-linear-issues)).
+lectio's `memory_authored_activity` tool
 projects each new item as `{ kind: "github/review" |
 "github/review_comment", author, path, preview, observed_at_nanos }`.
 `kind` names the *artifact type*, never the review's outcome. Reading
@@ -635,10 +659,10 @@ constant function: every lectio-sourced observation is `soft`, and
 `agent/lib/sources/github.ts`, reading the same event straight from
 GitHub's GraphQL API (`PullRequest.reviews`, which *does* return
 `state`), classifies every observation it emits — review verdicts,
-comments, merges, closes — as `hard`. The full citation trail (Rust
-line numbers, the live call's raw JSON) is in
-[lectio-api-notes.md](lectio-api-notes.md); this section is the "so
-what," not the evidence.
+comments, merges, closes — as `hard`, because it genuinely can. The
+full citation trail (Rust line numbers, the live call's raw JSON) is
+in [lectio-api-notes.md](lectio-api-notes.md); this section is the
+"so what," not the evidence.
 
 The practical effect, enforced in `mergeEvents()`
 (`agent/lib/sources/merge.ts:104`): when lectio and GitHub both observe the
