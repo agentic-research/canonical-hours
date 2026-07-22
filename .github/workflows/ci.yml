@@ -33,4 +33,18 @@ jobs:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # Install separately, with a retry, before `task ci`. A fresh install
+      # on these runners has hit a reproducible pnpm bin-linking race twice
+      # in a row (ENOTEMPTY during rmdir + ENOENT creating node_modules/.bin/eve)
+      # when a peer-dependency-qualified package — eve, resolved once
+      # directly and once via @vercel/connect's peer copy — gets linked
+      # concurrently from two places in the store. Not reproducible locally
+      # (a from-scratch install with an isolated store succeeds every time),
+      # so this is runner-environment-specific, not a real dependency bug.
+      # `task ci`'s own nested `deps` task (Taskfile.yml) is a no-op once
+      # node_modules/.modules.yaml is already up to date, so this doesn't
+      # install twice on the happy path.
+      - name: Install dependencies (retried — see comment above)
+        run: pnpm install --frozen-lockfile || pnpm install --frozen-lockfile
+
       - run: task ci
