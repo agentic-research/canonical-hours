@@ -752,6 +752,22 @@ drops below it, the source sleeps until `rateLimit.resetAt` before its
 next call in that tick, then continues — same "wait, don't fail the
 tick" shape as before, just with richer, always-present telemetry.
 
+**Raw-response validation via GraphQL codegen.** Both `github.ts`'s
+primary search query and `linear.ts`'s issues query now validate their
+raw GraphQL response against a zod schema generated directly from each
+provider's real published schema (`@graphql-codegen`, wired via
+`agent/lib/sources/{github,linear}.graphql` +
+`canonical-hours.codegen.{github,linear}.ts`, regenerated with
+`task codegen`) — immediately after `fetch()`, one layer earlier than
+the existing hand-written `GithubPrRecordSchema`/`LinearIssueRecordSchema`
+already validated. The two aren't redundant: the generated schema
+catches drift in the *raw provider shape* (an unchecked cast before
+this), while the hand-written ones still validate this adapter's own
+*flattened, normalized* record built from it. `buildRequiredCheckQuery`
+(github.ts's second, runtime-templated query) is explicitly not
+codegen-validated — it's built per-call via string interpolation, not
+a static operation document codegen can target.
+
 ### Why stateless: a 72h window, not a cursor
 
 There is no persisted "last successfully processed" cursor anywhere in

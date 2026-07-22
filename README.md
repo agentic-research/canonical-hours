@@ -223,6 +223,7 @@ task dev          # eve dev — run the agent locally
 task build        # eve build
 task test         # vitest run
 task typecheck    # tsc --noEmit
+task codegen      # regenerate agent/lib/sources/generated/*.ts after editing a .graphql file
 task check        # typecheck + test — the fast inner-loop gate
 task smells       # structural smell gate, ratcheted against docs/smell-baseline.json
 task install-hooks  # once per clone: wires task smells into .git/hooks/pre-commit
