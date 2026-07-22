@@ -29,7 +29,7 @@
     {
       "rule_id": "dead_code",
       "source_id": "agent/lib/sources/generated/github.ts",
-      "count": 320
+      "count": 319
     },
     {
       "rule_id": "dead_code",

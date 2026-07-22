@@ -15,7 +15,7 @@
           "reviewDecision": "CHANGES_REQUESTED",
           "mergeable": "MERGEABLE",
           "mergeStateStatus": "BLOCKED",
-          "repository": { "owner": { "login": "jamestexas" }, "name": "agents" },
+          "repository": { "owner": { "login": "jamestexas", "__typename": "User" }, "name": "agents" },
           "reviews": {
             "nodes": [
               {

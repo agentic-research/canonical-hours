@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { GithubSource } from "../agent/lib/sources/github";
+import { SearchPrsQuerySchema } from "../agent/lib/sources/generated/github";
 
 const fx = (name: string) => JSON.parse(readFileSync(`test/fixtures/github/${name}.json`, "utf8"));
 
@@ -207,7 +208,7 @@ describe("GithubSource", () => {
               reviewDecision: null,
               mergeable: "MERGEABLE",
               mergeStateStatus: "UNSTABLE",
-              repository: { owner: { login: "owner-a" }, name: "repo-a" },
+              repository: { owner: { login: "owner-a", __typename: "User" }, name: "repo-a" },
               reviews: { nodes: [] },
               comments: { nodes: [] },
               reviewThreads: { nodes: [] },
@@ -226,7 +227,7 @@ describe("GithubSource", () => {
               reviewDecision: null,
               mergeable: "MERGEABLE",
               mergeStateStatus: "UNSTABLE",
-              repository: { owner: { login: "owner-b" }, name: "repo-b" },
+              repository: { owner: { login: "owner-b", __typename: "User" }, name: "repo-b" },
               reviews: { nodes: [] },
               comments: { nodes: [] },
               reviewThreads: { nodes: [] },
@@ -317,7 +318,7 @@ describe("GithubSource", () => {
               reviewDecision: "APPROVED",
               mergeable: "MERGEABLE",
               mergeStateStatus: "CLEAN",
-              repository: { owner: { login: "jamestexas" }, name: "agents" },
+              repository: { owner: { login: "jamestexas", __typename: "User" }, name: "agents" },
               reviews: { nodes: [] },
               comments: { nodes: [] },
               reviewThreads: { nodes: [] },
@@ -369,7 +370,7 @@ describe("GithubSource", () => {
               reviewDecision: "APPROVED",
               mergeable: "MERGEABLE",
               mergeStateStatus: "BLOCKED",
-              repository: { owner: { login: "jamestexas" }, name: "agents" },
+              repository: { owner: { login: "jamestexas", __typename: "User" }, name: "agents" },
               reviews: { nodes: [] },
               comments: { nodes: [] },
               reviewThreads: { nodes: [] },
@@ -437,7 +438,7 @@ describe("GithubSource", () => {
               reviewDecision: "CHANGES_REQUESTED",
               mergeable: "MERGEABLE",
               mergeStateStatus: "BLOCKED",
-              repository: { owner: { login: "jamestexas" }, name: "agents" },
+              repository: { owner: { login: "jamestexas", __typename: "User" }, name: "agents" },
               reviews: { nodes: [] },
               comments: { nodes: [] },
               reviewThreads: { nodes: [] },
@@ -476,7 +477,7 @@ describe("GithubSource", () => {
               reviewDecision: "APPROVED",
               mergeable: "MERGEABLE",
               mergeStateStatus: "BLOCKED",
-              repository: { owner: { login: "jamestexas" }, name: "agents" },
+              repository: { owner: { login: "jamestexas", __typename: "User" }, name: "agents" },
               reviews: { nodes: [] },
               comments: { nodes: [] },
               reviewThreads: {
@@ -513,5 +514,23 @@ describe("GithubSource", () => {
     const rec = (raws as Array<{ pr: { number: number } }>).find((r) => r.pr.number === 7)!;
     const event = source.mapToLifecycleEvent(rec);
     expect(event.extra).toEqual({ merge_ready: true });
+  });
+});
+
+describe("SearchPrsQuerySchema (codegen)", () => {
+  it("accepts the real existing fixture", () => {
+    expect(() => SearchPrsQuerySchema().parse(fx("search_windowed").data)).not.toThrow();
+  });
+
+  it("rejects a fixture with a required field removed (drift detection)", () => {
+    const drifted = fx("search_windowed");
+    delete drifted.data.search.nodes[0].number;
+    expect(() => SearchPrsQuerySchema().parse(drifted.data)).toThrow();
+  });
+
+  it("rejects a fixture with the wrong type for a scalar field", () => {
+    const drifted = fx("search_windowed");
+    drifted.data.search.nodes[0].number = "not-a-number";
+    expect(() => SearchPrsQuerySchema().parse(drifted.data)).toThrow();
   });
 });

@@ -7,6 +7,7 @@ import {
   canonicalPrUri,
 } from "@vespers/core";
 import type { FetchWindow } from "@vespers/core";
+import { SearchPrsQuerySchema } from "./generated/github";
 
 /** One check-run/status-context conclusion, normalized across both union members at fetch time. */
 export const CheckRollupEntrySchema = z.looseObject({
@@ -82,7 +83,7 @@ interface GqlPullRequest {
   reviewDecision: string | null;
   mergeable: string;
   mergeStateStatus: string;
-  repository: { owner: { login: string }; name: string };
+  repository: { owner: { login: string; __typename: string }; name: string };
   reviews: {
     nodes: Array<{
       id: string;
@@ -93,7 +94,7 @@ interface GqlPullRequest {
       url?: string;
     }>;
   };
-  comments: { nodes: Array<{ author: { login: string } | null; createdAt: string; body: string; url?: string }> };
+  comments: { nodes: Array<{ author: { login: string; __typename: string } | null; createdAt: string; body: string; url?: string }> };
   reviewThreads: {
     nodes: Array<{
       id: string;
@@ -141,9 +142,9 @@ const SEARCH_QUERY = `
         ... on PullRequest {
           number title url state mergedAt closedAt
           reviewDecision mergeable mergeStateStatus
-          repository { owner { login } name }
+          repository { owner { login __typename } name }
           reviews(first: 50) { nodes { id author { login __typename } state submittedAt body url } }
-          comments(first: 50) { nodes { author { login } createdAt body url } }
+          comments(first: 50) { nodes { author { login __typename } createdAt body url } }
           reviewThreads(first: 50) {
             nodes {
               id
@@ -256,6 +257,15 @@ export class GithubSource implements Source {
     if (!res.ok) throw new Error(`github graphql ${res.status}`);
     const json = (await res.json()) as GqlSearchResponse;
     if (json.errors?.length) throw new Error(`github graphql errors: ${json.errors.map((e) => e.message).join("; ")}`);
+    // Only the primary search query's real shape is codegen-validated here —
+    // buildRequiredCheckQuery's response is a separate, runtime-templated
+    // query codegen can't target (out of scope, canonical-hours-c72328).
+    // Validated against json.data specifically (not the full {data, errors}
+    // envelope) — matches the generated schema's own shape, confirmed
+    // against the earlier spike's own validate.mjs (`.parse(fixture.data)`).
+    if (query === SEARCH_QUERY) {
+      SearchPrsQuerySchema().parse(json.data);
+    }
     if (json.data.rateLimit.remaining < this.minRemaining) {
       const waitMs = new Date(json.data.rateLimit.resetAt).getTime() - this.now().getTime();
       if (waitMs > 0) await this.sleepImpl(waitMs);

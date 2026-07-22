@@ -15,7 +15,7 @@
           "reviewDecision": null,
           "mergeable": "MERGEABLE",
           "mergeStateStatus": "CLEAN",
-          "repository": { "owner": { "login": "jamestexas" }, "name": "mache" },
+          "repository": { "owner": { "login": "jamestexas", "__typename": "User" }, "name": "mache" },
           "reviews": { "nodes": [] },
           "comments": { "nodes": [] },
           "reviewThreads": { "nodes": [] },
