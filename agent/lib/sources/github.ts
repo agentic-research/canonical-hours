@@ -392,7 +392,7 @@ export class GithubSource implements Source {
     for (const check of failingRequired) {
       observations.push({
         artifact_uri: artifact.uri,
-        at: rec.pr.mergedAt ?? rec.pr.closedAt ?? new Date().toISOString(),
+        at: rec.pr.mergedAt ?? rec.pr.closedAt ?? this.now().toISOString(),
         author: "",
         type: "check_failed",
         payload: { name: check.name },

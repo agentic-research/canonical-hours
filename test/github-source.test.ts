@@ -26,6 +26,8 @@ const window = {
   until: new Date("2026-07-17T08:00:00Z"),
 };
 
+const FIXED_NOW = () => new Date("2026-07-21T12:00:00Z");
+
 // search_windowed's PR #42 always carries two failing checks (Task 4 fixture),
 // so every test that fetches through the shared routes needs the conditional
 // isRequired resolution satisfied by default; per-test overrides shadow it
@@ -88,7 +90,6 @@ describe("GithubSource", () => {
   it("sleeps until rateLimit.resetAt when remaining drops below min_remaining, then continues", async () => {
     const sleeps: number[] = [];
     const fakeSleep = async (ms: number) => { sleeps.push(ms); };
-    const now = () => new Date("2026-07-21T12:00:00Z");
     const lowLimitThenNormal: Array<[string, unknown]> = [
       ["updated:>=", {
         data: {
@@ -99,7 +100,7 @@ describe("GithubSource", () => {
       }],
       ["review:changes_requested", fx("search_backstop")],
     ];
-    const source = new GithubSource("t", fakeFetch(lowLimitThenNormal), now, 200, fakeSleep);
+    const source = new GithubSource("t", fakeFetch(lowLimitThenNormal), FIXED_NOW, 200, fakeSleep);
     await source.fetch(window);
     expect(sleeps).toHaveLength(1);
     // resetAt (12:05:00) - now (12:00:00) = 5 minutes = 300_000ms
@@ -115,7 +116,15 @@ describe("GithubSource", () => {
   });
 
   it("a failing REQUIRED check sets needs_you and emits a check_failed observation", async () => {
-    const source = new GithubSource("t", fakeFetch([...routes, ["pr0:", fx("required_check_isrequired")]]));
+    // pr0's mergedAt/closedAt are both null (search_windowed fixture) — the
+    // check_failed observation's timestamp falls back to the injectable
+    // clock (canonical-hours-8ac6ec), not wall-clock time. FIXED_NOW here,
+    // asserted against below, is what actually proves that.
+    const source = new GithubSource(
+      "t",
+      fakeFetch([...routes, ["pr0:", fx("required_check_isrequired")]]),
+      FIXED_NOW,
+    );
     const raws = await source.fetch(window);
     const rec = (raws as Array<{ pr: { number: number } }>).find((r) => r.pr.number === 42)!;
     const event = source.mapToLifecycleEvent(rec);
@@ -124,6 +133,7 @@ describe("GithubSource", () => {
     expect(checkObs).toBeDefined();
     expect(checkObs.classification).toBe("hard");
     expect(checkObs.payload.name).toBe("ci-required");
+    expect(checkObs.at).toBe(FIXED_NOW().toISOString());
     // The non-required failing check must NOT produce its own check_failed observation.
     expect(event.observations.filter((o) => o.type === "check_failed")).toHaveLength(1);
   });
