@@ -14,7 +14,7 @@
     {
       "rule_id": "dead_code",
       "source_id": "agent/lib/invoke-agent.ts",
-      "count": 2
+      "count": 1
     },
     {
       "rule_id": "dead_code",
@@ -40,11 +40,6 @@
       "rule_id": "dead_code",
       "source_id": "agent/lib/thread-resolution.ts",
       "count": 6
-    },
-    {
-      "rule_id": "dead_code",
-      "source_id": "agent/lib/tick.ts",
-      "count": 2
     },
     {
       "rule_id": "dead_code",
@@ -90,6 +85,11 @@
       "rule_id": "dead_code",
       "source_id": "packages/vespers/src/source.ts",
       "count": 8
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "packages/vespers/src/tick.ts",
+      "count": 3
     },
     {
       "rule_id": "dead_code",
@@ -213,12 +213,12 @@
     },
     {
       "rule_id": "fan_out_skew",
-      "source_id": "agent/lib/tick.ts",
+      "source_id": "packages/vespers/src/merge.ts",
       "count": 1
     },
     {
       "rule_id": "fan_out_skew",
-      "source_id": "packages/vespers/src/merge.ts",
+      "source_id": "packages/vespers/src/tick.ts",
       "count": 1
     },
     {
@@ -269,7 +269,7 @@
     {
       "rule_id": "fan_out_skew",
       "source_id": "test/tick.test.ts",
-      "count": 14
+      "count": 16
     },
     {
       "rule_id": "god_file",
@@ -288,7 +288,7 @@
     },
     {
       "rule_id": "long_function",
-      "source_id": "agent/lib/tick.ts",
+      "source_id": "packages/vespers/src/tick.ts",
       "count": 1
     }
   ]

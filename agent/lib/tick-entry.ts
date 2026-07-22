@@ -1,12 +1,12 @@
 import { GithubSource } from "./sources/github";
 import { LectioSource, createMcpLectioCall } from "./sources/lectio";
 import { LinearSource } from "./sources/linear";
-import type { SnapshotSource } from "@canonical-hours/core";
-import type { Source } from "./sources/source";
+import type { SnapshotSource, Source } from "@vespers/core";
+import { runTick, TickResult } from "@vespers/core";
 import { WeatherSource } from "./sources/weather";
 import { loadConfig } from "./config";
 import { loadPrivateSources } from "./private-sources";
-import { runTick, TickResult } from "./tick";
+import { nodeBoardStore } from "./node-board-store";
 import { createInvokeAgent, InvokeAgentRuntime } from "./invoke-agent";
 
 // Module-load config, like pr-board.ts: a malformed canonical-hours.toml
@@ -64,6 +64,7 @@ export async function prBoardTick(runtime: InvokeAgentRuntime): Promise<TickResu
     sources,
     priority: ["lectio", "github", "linear"],
     snapshotSources,
+    boardStore: nodeBoardStore,
     invokeAgent: createInvokeAgent(runtime),
   });
   console.log(`[pr-board] tick result: ${result}`);

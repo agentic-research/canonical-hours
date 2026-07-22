@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { loadPrivateSources } from "../agent/lib/private-sources";
-import type { Source } from "../agent/lib/sources/source";
+import type { Source } from "@vespers/core";
 
 describe("loadPrivateSources", () => {
   afterEach(() => vi.restoreAllMocks());

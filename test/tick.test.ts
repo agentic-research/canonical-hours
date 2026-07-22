@@ -2,11 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runTick, inQuietHours, _resetTickGuardForTests, computeMaterialHash, TickDeps } from "../agent/lib/tick";
-import { readBoard, writeBoardAtomic, Board } from "../agent/lib/board";
-import { Source, LifecycleEvent, Observation } from "../agent/lib/sources/source";
-import { MergedArtifact } from "../agent/lib/sources/merge";
-import type { SnapshotSource } from "@canonical-hours/core";
+import { runTick, inQuietHours, _resetTickGuardForTests, computeMaterialHash, TickDeps, Board, Source, LifecycleEvent, Observation, MergedArtifact, SnapshotSource } from "@vespers/core";
+import { NodeBoardStore } from "../agent/lib/node-board-store";
 
 const obs = (partial: Partial<Observation>): Observation => ({
   artifact_uri: "pr:o/r#1", at: "2026-07-16T12:00:00Z", author: "mark",
@@ -47,7 +44,7 @@ async function deps(overrides: Partial<TickDeps>): Promise<TickDeps> {
     priority: ["lectio", "github"],
     now: () => NOW,
     invokeAgent: async () => {},
-    boardDir: dir,
+    boardStore: new NodeBoardStore(dir),
     ...overrides,
   };
 }
@@ -71,7 +68,7 @@ describe("runTick", () => {
     });
     expect(await runTick(d)).toBe("all_clear");
     expect(agentCalls).toBe(0); // zero tokens on quiet ticks — asserted, per spec §2.5
-    const board = await readBoard(d.boardDir);
+    const board = await d.boardStore.read();
     expect(board?.tick_status).toBe("all_clear");
     expect(board?.generated_at).toBe(NOW.toISOString());
     expect(board?.items[0].state).toBe("resolved");
@@ -98,10 +95,10 @@ describe("runTick", () => {
           };
         }),
       };
-      await writeBoardAtomic(board, d.boardDir);
+      await d.boardStore.write(board);
     };
     expect(await runTick(d)).toBe("material");
-    const board = await readBoard(d.boardDir);
+    const board = await d.boardStore.read();
     expect(board?.tick_status).toBe("ok");
     expect(board?.items[0].summary).toBe("Mark commented.");
   });
@@ -114,7 +111,7 @@ describe("runTick", () => {
     });
     expect(await runTick(d)).toBe("degraded_fallback");
     expect(attempts).toBe(2);
-    const board = await readBoard(d.boardDir);
+    const board = await d.boardStore.read();
     expect(board?.tick_status).toBe("degraded");
     expect(board?.degradations.some((x) => x.source === "agent")).toBe(true);
     expect(board?.items[0].state).toBe("needs_you"); // merged events carried, un-summarized
@@ -129,7 +126,7 @@ describe("runTick", () => {
       ],
     });
     expect(await runTick(d)).toBe("all_clear");
-    const board = await readBoard(d.boardDir);
+    const board = await d.boardStore.read();
     expect(board?.tick_status).toBe("degraded");
     expect(board?.degradations).toEqual([
       { source: "lectio", error: "lectio unreachable", since: NOW.toISOString() },
@@ -140,17 +137,14 @@ describe("runTick", () => {
   it("degradations.since is carried from the previous board (how long dark)", async () => {
     const d = await deps({ sources: [fakeSource("lectio", [], true)] });
     const earlier = "2026-07-16T20:00:00Z";
-    await writeBoardAtomic(
-      {
-        generated_at: earlier, tick_status: "degraded",
-        window: { since: earlier, until: earlier },
-        freshness: [], items: [],
-        degradations: [{ source: "lectio", error: "old", since: earlier }],
-      },
-      d.boardDir,
-    );
+    await d.boardStore.write({
+      generated_at: earlier, tick_status: "degraded",
+      window: { since: earlier, until: earlier },
+      freshness: [], items: [],
+      degradations: [{ source: "lectio", error: "old", since: earlier }],
+    });
     await runTick(d);
-    const board = await readBoard(d.boardDir);
+    const board = await d.boardStore.read();
     expect(board?.degradations[0].since).toBe(earlier);
   });
 
@@ -183,7 +177,7 @@ describe("runTick", () => {
     ev.extra = { merge_ready: true };
     const d = await deps({ sources: [fakeSource("lectio", [ev])] });
     expect(await runTick(d)).toBe("all_clear");
-    const board = await readBoard(d.boardDir);
+    const board = await d.boardStore.read();
     const item = board?.items[0];
     expect(item?.kind).toBe("pr");
     if (item?.kind === "pr") expect(item.merge_ready).toBe(true);
@@ -196,7 +190,7 @@ describe("runTick", () => {
     ev.extra = { reason: "P1 stuck in Triage for 9d" };
     const d = await deps({ sources: [fakeSource("linear", [ev])] });
     expect(await runTick(d)).toBe("degraded_fallback");
-    const board = await readBoard(d.boardDir);
+    const board = await d.boardStore.read();
     expect(board?.items[0].reason).toBe("P1 stuck in Triage for 9d");
   });
 
@@ -206,7 +200,7 @@ describe("runTick", () => {
     ev.state_hint = "needs_you";
     const d = await deps({ sources: [fakeSource("linear", [ev])] });
     await runTick(d);
-    const board = await readBoard(d.boardDir);
+    const board = await d.boardStore.read();
     const item = board?.items[0];
     expect(item?.kind).toBe("issue");
     if (item?.kind === "issue") {
@@ -304,7 +298,7 @@ function summarizingAgent(d: TickDeps, counter: { calls: number }, clock: { now:
         };
       }),
     };
-    await writeBoardAtomic(board, d.boardDir);
+    await d.boardStore.write(board);
   };
 }
 
@@ -319,7 +313,7 @@ describe("three-way tick: material_unchanged", () => {
     // Tick 1: material — agent invoked once; runTick overlays material_hash post-write.
     expect(await runTick(d)).toBe("material");
     expect(counter.calls).toBe(1);
-    const after1 = await readBoard(d.boardDir);
+    const after1 = await d.boardStore.read();
     expect(after1?.material_hash).toBeDefined();
     expect(after1?.items[0].summary).toBe("Mark commented.");
 
@@ -327,7 +321,7 @@ describe("three-way tick: material_unchanged", () => {
     clock.now = NOW2;
     expect(await runTick(d)).toBe("material_unchanged");
     expect(counter.calls).toBe(1); // counter still 1 — zero new LLM calls
-    const after2 = await readBoard(d.boardDir);
+    const after2 = await d.boardStore.read();
     expect(after2?.generated_at).toBe(NOW2.toISOString()); // staleness health signal stays alive
     expect(after2!.generated_at > after1!.generated_at).toBe(true);
     expect(after2?.items[0].summary).toBe("Mark commented."); // LLM prose carried over byte-identical
@@ -349,7 +343,7 @@ describe("three-way tick: material_unchanged", () => {
       sources: [fakeSource("lectio", [event("pr:o/r#1", [obs({ type: "merge" })])])],
     });
     expect(await runTick(d)).toBe("all_clear");
-    const board = await readBoard(d.boardDir);
+    const board = await d.boardStore.read();
     expect(board?.material_hash).toBeDefined();
   });
 
@@ -381,7 +375,7 @@ describe("three-way tick: material_unchanged", () => {
 
     expect(await runTick(d)).toBe("degraded_fallback");
     expect(counter.calls).toBe(2); // initial + one retry (existing behavior)
-    const fallback = await readBoard(d.boardDir);
+    const fallback = await d.boardStore.read();
     expect(fallback?.material_hash).toBeDefined(); // fallback board carries the hash too
 
     clock.now = NOW2;
@@ -408,7 +402,7 @@ describe("snapshot sources in runTick", () => {
       snapshotSources: [okSnapshot],
     });
     expect(await runTick(d)).toBe("all_clear");
-    const board = await readBoard(d.boardDir);
+    const board = await d.boardStore.read();
     expect(board?.snapshots).toEqual([
       { kind: "weather", label: "Weather — Austin, TX", value: "72°F, clear", as_of: "2026-07-17T07:55:00Z" },
     ]);
@@ -429,7 +423,7 @@ describe("snapshot sources in runTick", () => {
       now: () => clock.now,
     });
     expect(await runTick(d)).toBe("all_clear"); // never blocks the PR pipeline
-    const first = await readBoard(d.boardDir);
+    const first = await d.boardStore.read();
     expect(first?.tick_status).toBe("degraded");
     expect(first?.degradations).toEqual([
       { source: "weather", error: "weather unreachable", since: NOW.toISOString() },
@@ -440,7 +434,7 @@ describe("snapshot sources in runTick", () => {
 
     clock.now = NOW2;
     expect(await runTick(d)).toBe("all_clear");
-    const second = await readBoard(d.boardDir);
+    const second = await d.boardStore.read();
     expect(second?.degradations[0].since).toBe(NOW.toISOString()); // carried forward, identical to activity sources
   });
 
@@ -457,7 +451,7 @@ describe("snapshot sources in runTick", () => {
       snapshotSources: [flaky],
     });
     expect(await runTick(d)).toBe("all_clear");
-    const board = await readBoard(d.boardDir);
+    const board = await d.boardStore.read();
     expect(board?.freshness).toContainEqual({ source: "weather", last_advanced_at: null });
     expect(board?.snapshots).toHaveLength(1); // fetch still succeeded
   });
@@ -480,7 +474,7 @@ describe("snapshots + material_hash land on every outcome", () => {
       snapshotSources: [stub],
     });
     expect(await runTick(d)).toBe("all_clear");
-    const board = await readBoard(d.boardDir);
+    const board = await d.boardStore.read();
     expect(board?.snapshots).toEqual([value]);
     expect(board?.material_hash).toBeDefined();
   });
@@ -495,7 +489,7 @@ describe("snapshots + material_hash land on every outcome", () => {
     });
     d.invokeAgent = summarizingAgent(d, counter, clock); // writes a board WITHOUT snapshots/hash
     expect(await runTick(d)).toBe("material");
-    const board = await readBoard(d.boardDir);
+    const board = await d.boardStore.read();
     expect(board?.snapshots).toEqual([value]); // overlaid by runTick, not authored by the agent
     expect(board?.material_hash).toBeDefined();
     expect(board?.items[0].summary).toBe("Mark commented."); // agent's content preserved through the overlay
@@ -513,7 +507,7 @@ describe("snapshots + material_hash land on every outcome", () => {
     expect(await runTick(d)).toBe("material");
     clock.now = NOW2;
     expect(await runTick(d)).toBe("material_unchanged");
-    const board = await readBoard(d.boardDir);
+    const board = await d.boardStore.read();
     expect(board?.snapshots).toEqual([value]);
     expect(board?.material_hash).toBeDefined();
   });
@@ -525,7 +519,7 @@ describe("snapshots + material_hash land on every outcome", () => {
     });
     d.invokeAgent = async () => {}; // never writes → fallback after retry
     expect(await runTick(d)).toBe("degraded_fallback");
-    const board = await readBoard(d.boardDir);
+    const board = await d.boardStore.read();
     expect(board?.snapshots).toEqual([value]);
     expect(board?.material_hash).toBeDefined();
   });

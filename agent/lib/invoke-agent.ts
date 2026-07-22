@@ -1,15 +1,9 @@
 import type { SessionAuthContext } from "eve/context";
 import type { ScheduleHandlerArgs } from "eve/schedules";
-import { MergedArtifact } from "./sources/merge";
-import { Board } from "./board";
+import type { AgentTickInput } from "@vespers/core";
 import tickChannel from "../channels/tick";
 
-export interface AgentTickInput {
-  merged: MergedArtifact[];
-  freshness: Board["freshness"];
-  degradations: Board["degradations"];
-  window: Board["window"];
-}
+export type { AgentTickInput };
 
 export function agentPrompt(input: AgentTickInput): string {
   return [

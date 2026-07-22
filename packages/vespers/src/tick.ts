@@ -1,20 +1,39 @@
 import { createHash } from "node:crypto";
-import { LifecycleEvent, Source } from "./sources/source";
-import { MergedArtifact, mergeEvents } from "./sources/merge";
-import type { FetchWindow, SnapshotSource, SnapshotValue } from "@canonical-hours/core";
-import { Board, BoardItem, readBoard, writeBoardAtomic } from "./board";
-import { AgentTickInput } from "./invoke-agent";
+import { LifecycleEvent, Source } from "./source";
+import { MergedArtifact, mergeEvents } from "./merge";
+import type { FetchWindow } from "./fetch-window";
+import type { SnapshotSource, SnapshotValue } from "./snapshot";
+import { Board, BoardItem, BoardStore } from "./board";
+
+/**
+ * The material-tick input handed to whatever invokes the summarizing LLM.
+ * Moved here from canonical-hours' agent/lib/invoke-agent.ts
+ * (canonical-hours-35893f) — it's built entirely from vespers' own types
+ * (MergedArtifact, Board's freshness/degradations/window shapes) and
+ * TickDeps.invokeAgent's signature needs it, so defining it in
+ * canonical-hours would make this package depend on canonical-hours'
+ * eve-specific invoke-agent.ts, backwards from the whole point of the
+ * extraction. canonical-hours' invoke-agent.ts now imports this type
+ * instead of declaring it.
+ */
+export interface AgentTickInput {
+  merged: MergedArtifact[];
+  freshness: Board["freshness"];
+  degradations: Board["degradations"];
+  window: Board["window"];
+}
 
 export interface TickDeps {
   sources: Source[];
   priority: string[]; // ["lectio", "github"]
   now?: () => Date;
   windowHours?: number; // default 72
-  quietHours?: string; // e.g. "22-07" (optional config knob, spec §2.2)
+  quietHours?: string; // e.g. "22-07" (optional config knob)
   quietTz?: string; // IANA tz, default "UTC"
   /** Runs the Haiku agent over material; the agent writes via the board tool itself. */
   invokeAgent: (input: AgentTickInput) => Promise<void>;
-  boardDir?: string;
+  /** Board persistence, injected — a NodeBoardStore under eve/Node today, anything BoardStore-shaped elsewhere. */
+  boardStore: BoardStore;
   /** Current-value sources (no lifecycle, no window, no LLM). Default []. */
   snapshotSources?: SnapshotSource[];
 }
@@ -123,17 +142,8 @@ export function computeMaterialHash(material: MergedArtifact[]): string {
 }
 
 /**
- * One tick, end to end (spec §2.3). Overlap-guarded via the module-level
- * `running` flag; never throws out of here.
- *
- * The overlap guard is what makes Task 6's accepted writer-vs-writer race
- * in writeBoardAtomic (concurrent calls colliding on a shared temp filename)
- * safe in practice: as long as this flag genuinely serializes runTick calls
- * within a process, two writeBoardAtomic calls for the same tick can never
- * be in flight concurrently. Verified by the "overlap guard" test in
- * test/tick.test.ts, which races two runTick() calls against the same
- * module instance and asserts the second is rejected before either one's
- * writeBoardAtomic call happens.
+ * One tick, end to end. Overlap-guarded via the module-level `running` flag;
+ * never throws out of here.
  */
 export async function runTick(deps: TickDeps): Promise<TickResult> {
   if (running) return "skipped_overlap";
@@ -158,12 +168,12 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
   };
   const boardWindow = { since: window.since.toISOString(), until: window.until.toISOString() };
 
-  const previous = await readBoard(deps.boardDir);
+  const previous = await deps.boardStore.read();
   const degradations: Board["degradations"] = [];
   const freshness: Board["freshness"] = [];
   const eventsBySource: Record<string, LifecycleEvent[]> = {};
 
-  // Sources run independently; one failing doesn't stop the others (spec §2.4).
+  // Sources run independently; one failing doesn't stop the others.
   for (const source of deps.sources) {
     try {
       const raws = await source.fetch(window);
@@ -222,7 +232,7 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
       snapshots,
       material_hash: materialHash,
     };
-    await writeBoardAtomic(board, deps.boardDir);
+    await deps.boardStore.write(board);
     return "all_clear";
   }
 
@@ -251,7 +261,7 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
       snapshots,
       material_hash: materialHash,
     };
-    await writeBoardAtomic(board, deps.boardDir);
+    await deps.boardStore.write(board);
     return "material_unchanged";
   }
 
@@ -259,16 +269,16 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       await deps.invokeAgent({ merged, freshness, degradations, window: boardWindow });
-      const written = await readBoard(deps.boardDir);
+      const written = await deps.boardStore.read();
       if (written && written.generated_at >= now.toISOString()) {
         // Post-write overlay: the model's board is never trusted for
         // material_hash (same principle as the board tool's generated_at
-        // stamp, enforced one level up — tools/board.ts stays untouched).
-        await writeBoardAtomic({ ...written, snapshots, material_hash: materialHash }, deps.boardDir);
+        // stamp, enforced one level up).
+        await deps.boardStore.write({ ...written, snapshots, material_hash: materialHash });
         return "material";
       }
     } catch {
-      // fall through to retry / degraded fallback (spec §2.4 — bad LLM output)
+      // fall through to retry / degraded fallback (bad LLM output)
     }
   }
 
@@ -286,6 +296,6 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
     snapshots,
     material_hash: materialHash,
   };
-  await writeBoardAtomic(fallback, deps.boardDir);
+  await deps.boardStore.write(fallback);
   return "degraded_fallback";
 }

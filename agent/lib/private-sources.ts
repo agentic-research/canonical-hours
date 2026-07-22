@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { Source } from "./sources/source";
+import type { Source } from "@vespers/core";
 
 /**
  * Loads the optional private-sources module (canonical-hours-dfb779):

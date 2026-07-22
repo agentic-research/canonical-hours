@@ -15,10 +15,9 @@ import mcpChannel, {
 } from "../agent/channels/mcp";
 import * as threadResolution from "../agent/lib/thread-resolution";
 import * as botReviewDismissal from "../agent/lib/bot-review-dismissal";
-import { Board, BoardSchema, renderBoardMd, writeBoardAtomic } from "../agent/lib/board";
-import { runTick, _resetTickGuardForTests } from "../agent/lib/tick";
+import { Board, BoardSchema, renderBoardMd, runTick, _resetTickGuardForTests, LifecycleEvent, Source } from "@vespers/core";
+import { NodeBoardStore } from "../agent/lib/node-board-store";
 import type { InvokeAgentRuntime } from "../agent/lib/invoke-agent";
-import type { LifecycleEvent, Source } from "../agent/lib/sources/source";
 import type { ActionGate } from "../agent/lib/action-gate";
 
 /** Test-only gate for tests exercising pr-parsing/delegation, not the gate itself. */
@@ -74,7 +73,7 @@ const FIXTURE_BOARD: Board = {
 /** Write the fixture board into a temp BOARD_DIR and point the env at it. */
 async function useFixtureBoard(): Promise<Board> {
   const dir = await mkdtemp(join(tmpdir(), "mcp-board-"));
-  await writeBoardAtomic(FIXTURE_BOARD, dir);
+  await new NodeBoardStore(dir).write(FIXTURE_BOARD);
   process.env.BOARD_DIR = dir;
   // Return the written (validated/sorted) form for byte-exact md comparison.
   return BoardSchema.parse(FIXTURE_BOARD);
@@ -177,7 +176,7 @@ describe("trigger_tick tool", () => {
       sources: [blocked],
       priority: ["lectio", "github"],
       invokeAgent: async () => {},
-      boardDir: dir,
+      boardStore: new NodeBoardStore(dir),
     });
     // Default tick (the REAL prBoardTick) through the MCP client, mid-flight:
     const client = await connect((s) => registerTriggerTickTool(s, stubRuntime()));
@@ -437,7 +436,7 @@ describe("e2e: real SDK client over streamable-HTTP", () => {
       sources: [blocked],
       priority: ["lectio", "github"],
       invokeAgent: async () => {},
-      boardDir: dir,
+      boardStore: new NodeBoardStore(dir),
     });
     const harness = await startHarness();
     const client = await connectHttpClient(harness.url);

@@ -6,7 +6,7 @@ import type { SessionAuthContext } from "eve/context";
 import { BoardSchema, renderBoardMd } from "@vespers/core";
 import { nodeBoardStore } from "../lib/node-board-store";
 import { prBoardTick } from "../lib/tick-entry";
-import type { TickResult } from "../lib/tick";
+import type { TickResult } from "@vespers/core";
 import type { InvokeAgentRuntime } from "../lib/invoke-agent";
 import { resolveAddressedThreads } from "../lib/thread-resolution";
 import { dismissStaleBotReviews } from "../lib/bot-review-dismissal";
