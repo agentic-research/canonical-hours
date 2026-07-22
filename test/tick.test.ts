@@ -74,7 +74,7 @@ describe("runTick", () => {
     const board = await readBoard(d.boardDir);
     expect(board?.tick_status).toBe("all_clear");
     expect(board?.generated_at).toBe(NOW.toISOString());
-    expect(board?.prs[0].state).toBe("resolved");
+    expect(board?.items[0].state).toBe("resolved");
   });
 
   it("material path invokes the agent; agent's board write is accepted", async () => {
@@ -88,18 +88,22 @@ describe("runTick", () => {
         window: input.window,
         freshness: input.freshness,
         degradations: input.degradations,
-        prs: input.merged.map((m) => ({
-          artifact_uri: m.artifact.uri, repo: m.artifact.repo, number: m.artifact.number,
-          title: m.artifact.title, url: m.artifact.url, state: m.state,
-          reason: "r", new_items: [], summary: "Mark commented.",
-        })),
+        items: input.merged.map((m) => {
+          if (m.artifact.kind !== "pr") throw new Error("test fixture expects pr");
+          return {
+            kind: "pr" as const,
+            artifact_uri: m.artifact.uri, repo: m.artifact.repo, number: m.artifact.number,
+            title: m.artifact.title, url: m.artifact.url, state: m.state,
+            reason: "r", new_items: [], summary: "Mark commented.",
+          };
+        }),
       };
       await writeBoardAtomic(board, d.boardDir);
     };
     expect(await runTick(d)).toBe("material");
     const board = await readBoard(d.boardDir);
     expect(board?.tick_status).toBe("ok");
-    expect(board?.prs[0].summary).toBe("Mark commented.");
+    expect(board?.items[0].summary).toBe("Mark commented.");
   });
 
   it("bad/absent agent output → one retry, then deterministic degraded board", async () => {
@@ -113,8 +117,8 @@ describe("runTick", () => {
     const board = await readBoard(d.boardDir);
     expect(board?.tick_status).toBe("degraded");
     expect(board?.degradations.some((x) => x.source === "agent")).toBe(true);
-    expect(board?.prs[0].state).toBe("needs_you"); // merged events carried, un-summarized
-    expect(board?.prs[0].summary).toBeUndefined();
+    expect(board?.items[0].state).toBe("needs_you"); // merged events carried, un-summarized
+    expect(board?.items[0].summary).toBeUndefined();
   });
 
   it("one source failing does not stop the other; degradation recorded", async () => {
@@ -130,7 +134,7 @@ describe("runTick", () => {
     expect(board?.degradations).toEqual([
       { source: "lectio", error: "lectio unreachable", since: NOW.toISOString() },
     ]);
-    expect(board?.prs).toHaveLength(1);
+    expect(board?.items).toHaveLength(1);
   });
 
   it("degradations.since is carried from the previous board (how long dark)", async () => {
@@ -140,7 +144,7 @@ describe("runTick", () => {
       {
         generated_at: earlier, tick_status: "degraded",
         window: { since: earlier, until: earlier },
-        freshness: [], prs: [],
+        freshness: [], items: [],
         degradations: [{ source: "lectio", error: "old", since: earlier }],
       },
       d.boardDir,
@@ -174,13 +178,41 @@ describe("runTick", () => {
 
   it("a source event's extra.merge_ready flows through to the board PR entry", async () => {
     // No observations → opened → non-material, so runTick's templated path builds
-    // the board via toBoardPr, exercising the extra → merge_ready passthrough end to end.
+    // the board via toBoardItem, exercising the extra → merge_ready passthrough end to end.
     const ev = event("pr:o/r#1", []);
     ev.extra = { merge_ready: true };
     const d = await deps({ sources: [fakeSource("lectio", [ev])] });
     expect(await runTick(d)).toBe("all_clear");
     const board = await readBoard(d.boardDir);
-    expect(board?.prs[0].merge_ready).toBe(true);
+    const item = board?.items[0];
+    expect(item?.kind).toBe("pr");
+    if (item?.kind === "pr") expect(item.merge_ready).toBe(true);
+  });
+
+  it("a source event's extra.reason overrides the generic per-state reason text", async () => {
+    const ev = event("issue:art/art-1", []);
+    ev.artifact = { uri: "issue:art/art-1", kind: "issue", team: "ART", identifier: "ART-1", title: "t", url: "https://linear.app/x" };
+    ev.state_hint = "needs_you";
+    ev.extra = { reason: "P1 stuck in Triage for 9d" };
+    const d = await deps({ sources: [fakeSource("linear", [ev])] });
+    expect(await runTick(d)).toBe("degraded_fallback");
+    const board = await readBoard(d.boardDir);
+    expect(board?.items[0].reason).toBe("P1 stuck in Triage for 9d");
+  });
+
+  it("an issue-kind board item renders team/identifier, not repo/number", async () => {
+    const ev = event("issue:art/art-1", []);
+    ev.artifact = { uri: "issue:art/art-1", kind: "issue", team: "ART", identifier: "ART-1", title: "Stale ticket", url: "https://linear.app/x" };
+    ev.state_hint = "needs_you";
+    const d = await deps({ sources: [fakeSource("linear", [ev])] });
+    await runTick(d);
+    const board = await readBoard(d.boardDir);
+    const item = board?.items[0];
+    expect(item?.kind).toBe("issue");
+    if (item?.kind === "issue") {
+      expect(item.team).toBe("ART");
+      expect(item.identifier).toBe("ART-1");
+    }
   });
 });
 
@@ -262,11 +294,15 @@ function summarizingAgent(d: TickDeps, counter: { calls: number }, clock: { now:
       window: input.window,
       freshness: input.freshness,
       degradations: input.degradations,
-      prs: input.merged.map((m) => ({
-        artifact_uri: m.artifact.uri, repo: m.artifact.repo, number: m.artifact.number,
-        title: m.artifact.title, url: m.artifact.url, state: m.state,
-        reason: "agent-authored reason", new_items: [], summary: "Mark commented.",
-      })),
+      items: input.merged.map((m) => {
+        if (m.artifact.kind !== "pr") throw new Error("test fixture expects pr");
+        return {
+          kind: "pr" as const,
+          artifact_uri: m.artifact.uri, repo: m.artifact.repo, number: m.artifact.number,
+          title: m.artifact.title, url: m.artifact.url, state: m.state,
+          reason: "agent-authored reason", new_items: [], summary: "Mark commented.",
+        };
+      }),
     };
     await writeBoardAtomic(board, d.boardDir);
   };
@@ -285,7 +321,7 @@ describe("three-way tick: material_unchanged", () => {
     expect(counter.calls).toBe(1);
     const after1 = await readBoard(d.boardDir);
     expect(after1?.material_hash).toBeDefined();
-    expect(after1?.prs[0].summary).toBe("Mark commented.");
+    expect(after1?.items[0].summary).toBe("Mark commented.");
 
     // Tick 2: same data, later now — LLM skipped entirely, board still refreshed.
     clock.now = NOW2;
@@ -294,10 +330,10 @@ describe("three-way tick: material_unchanged", () => {
     const after2 = await readBoard(d.boardDir);
     expect(after2?.generated_at).toBe(NOW2.toISOString()); // staleness health signal stays alive
     expect(after2!.generated_at > after1!.generated_at).toBe(true);
-    expect(after2?.prs[0].summary).toBe("Mark commented."); // LLM prose carried over byte-identical
+    expect(after2?.items[0].summary).toBe("Mark commented."); // LLM prose carried over byte-identical
     // Deterministic fields re-derived from THIS tick's fold, not copied from the agent board:
-    expect(after2?.prs[0].reason).toBe("unanswered review/comment or standing changes_requested");
-    expect(after2?.prs[0].new_items).toHaveLength(1);
+    expect(after2?.items[0].reason).toBe("unanswered review/comment or standing changes_requested");
+    expect(after2?.items[0].new_items).toHaveLength(1);
     expect(after2?.tick_status).toBe("ok");
     expect(after2?.material_hash).toBe(after1?.material_hash);
 
@@ -400,7 +436,7 @@ describe("snapshot sources in runTick", () => {
     ]);
     expect(first?.snapshots).toEqual([]); // board still written; weather's value simply absent
     expect(first?.freshness).toContainEqual({ source: "weather", last_advanced_at: null });
-    expect(first?.prs).toHaveLength(1); // PR content unaffected
+    expect(first?.items).toHaveLength(1); // PR content unaffected
 
     clock.now = NOW2;
     expect(await runTick(d)).toBe("all_clear");
@@ -462,7 +498,7 @@ describe("snapshots + material_hash land on every outcome", () => {
     const board = await readBoard(d.boardDir);
     expect(board?.snapshots).toEqual([value]); // overlaid by runTick, not authored by the agent
     expect(board?.material_hash).toBeDefined();
-    expect(board?.prs[0].summary).toBe("Mark commented."); // agent's content preserved through the overlay
+    expect(board?.items[0].summary).toBe("Mark commented."); // agent's content preserved through the overlay
   });
 
   it("material_unchanged", async () => {

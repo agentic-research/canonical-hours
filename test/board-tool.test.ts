@@ -14,7 +14,7 @@ const board = (generatedAt: string): Board => ({
   window: { since: "2026-07-14T08:00:00Z", until: "2026-07-17T08:00:00Z" },
   freshness: [],
   degradations: [],
-  prs: [],
+  items: [],
 });
 
 describe("board tool", () => {
@@ -31,7 +31,7 @@ describe("board tool", () => {
       const result = await boardTool.execute(staleModelInput, fakeCtx);
       const after = new Date();
 
-      expect(result).toEqual({ written: true, prs: 0 });
+      expect(result).toEqual({ written: true, items: 0 });
 
       const written = await readBoard(dir);
       expect(written).not.toBeNull();

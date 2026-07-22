@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { LifecycleEvent, Source } from "../sources/source";
 import { MergedArtifact, mergeEvents } from "../sources/merge";
 import type { FetchWindow, SnapshotSource, SnapshotValue } from "@canonical-hours/core";
-import { Board, readBoard, writeBoardAtomic } from "./board";
+import { Board, BoardItem, readBoard, writeBoardAtomic } from "./board";
 import { AgentTickInput } from "./invoke-agent";
 
 export interface TickDeps {
@@ -45,36 +45,56 @@ export function inQuietHours(now: Date, spec: string | undefined, tz: string): b
   return start <= end ? hour >= start && hour < end : hour >= start || hour < end;
 }
 
-export function toBoardPr(m: MergedArtifact): Board["prs"][number] {
-  const reason = {
+export function toBoardItem(m: MergedArtifact): BoardItem {
+  const defaultReason = {
     needs_you: "unanswered review/comment or standing changes_requested",
     active: "others engaged; nothing outstanding on you",
     opened: "no activity from others yet",
     resolved: "merged, closed, or fully answered",
   }[m.state];
-  const mergeReady = m.extra?.merge_ready;
+  // Generic override: a source can report a more specific, source-shaped
+  // reason (e.g. LinearSource's staleness explanation) via extra.reason —
+  // same passthrough mechanism merge_ready already uses, not new plumbing.
+  const reason = typeof m.extra?.reason === "string" ? m.extra.reason : defaultReason;
+  const newItems = m.observations.slice(-5).map((o) => ({
+    type: o.type,
+    author: o.author,
+    preview: String(o.payload.preview ?? ""),
+    at: o.at,
+    uri:
+      typeof o.payload.url === "string" && o.payload.url
+        ? o.payload.url
+        : typeof o.payload.lectio_uri === "string" && o.payload.lectio_uri
+          ? o.payload.lectio_uri
+          : undefined,
+    classification: o.classification,
+  }));
+
+  if (m.artifact.kind === "pr") {
+    const mergeReady = m.extra?.merge_ready;
+    return {
+      kind: "pr",
+      artifact_uri: m.artifact.uri,
+      repo: m.artifact.repo,
+      number: m.artifact.number,
+      title: m.artifact.title,
+      url: m.artifact.url,
+      state: m.state,
+      reason,
+      new_items: newItems,
+      ...(typeof mergeReady === "boolean" ? { merge_ready: mergeReady } : {}),
+    };
+  }
   return {
+    kind: "issue",
     artifact_uri: m.artifact.uri,
-    repo: m.artifact.repo,
-    number: m.artifact.number,
+    team: m.artifact.team,
+    identifier: m.artifact.identifier,
     title: m.artifact.title,
     url: m.artifact.url,
     state: m.state,
     reason,
-    new_items: m.observations.slice(-5).map((o) => ({
-      type: o.type,
-      author: o.author,
-      preview: String(o.payload.preview ?? ""),
-      at: o.at,
-      uri:
-        typeof o.payload.url === "string" && o.payload.url
-          ? o.payload.url
-          : typeof o.payload.lectio_uri === "string" && o.payload.lectio_uri
-            ? o.payload.lectio_uri
-            : undefined,
-      classification: o.classification,
-    })),
-    ...(typeof mergeReady === "boolean" ? { merge_ready: mergeReady } : {}),
+    new_items: newItems,
   };
 }
 
@@ -198,7 +218,7 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
       window: boardWindow,
       freshness,
       degradations,
-      prs: merged.map(toBoardPr),
+      items: merged.map(toBoardItem),
       snapshots,
       material_hash: materialHash,
     };
@@ -214,7 +234,7 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
     previous?.degradations.some((d) => d.source === "agent") ?? false;
   if (previous?.material_hash === materialHash && !previousWasAgentFallback) {
     const previousSummaries = new Map(
-      previous.prs.map((p) => [p.artifact_uri, p.summary] as const),
+      previous.items.map((p) => [p.artifact_uri, p.summary] as const),
     );
     const board: Board = {
       generated_at: now.toISOString(), // fresh — the staleness health check keeps working
@@ -224,8 +244,8 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
       degradations,
       // Deterministic fields (reason, new_items, state) from THIS tick's own fold;
       // only the LLM's prose (summary) is reused, keyed by artifact_uri.
-      prs: merged.map((m) => ({
-        ...toBoardPr(m),
+      items: merged.map((m) => ({
+        ...toBoardItem(m),
         summary: previousSummaries.get(m.artifact.uri),
       })),
       snapshots,
@@ -262,7 +282,7 @@ async function runTickInner(deps: TickDeps): Promise<TickResult> {
       ...degradations,
       { source: "agent", error: "agent produced no valid board after retry", since: now.toISOString() },
     ],
-    prs: merged.map(toBoardPr),
+    items: merged.map(toBoardItem),
     snapshots,
     material_hash: materialHash,
   };

@@ -3,12 +3,13 @@ import { BoardSchema, writeBoardAtomic } from "../lib/board";
 
 export default defineTool({
   description:
-    "Validate and atomically write the PR status board (board.json + board.md). " +
+    "Validate and atomically write the status board (board.json + board.md). " +
     "Input is the FULL board object — generated_at, tick_status, window, freshness, " +
-    "degradations, prs. PRs are re-sorted needs_you → active → opened → resolved. " +
-    "generated_at is stamped by the runtime at write time, not read from your " +
-    "input — the tick's liveness signal must not depend on the model's own clock. " +
-    "A malformed board is rejected; call again with a corrected board.",
+    "degradations, items (PRs and Linear issues, mixed). Items are re-sorted " +
+    "needs_you → active → opened → resolved. generated_at is stamped by the " +
+    "runtime at write time, not read from your input — the tick's liveness " +
+    "signal must not depend on the model's own clock. A malformed board is " +
+    "rejected; call again with a corrected board.",
   inputSchema: BoardSchema,
   async execute(input) {
     // generated_at is runtime-authoritative, not model-authored: this is the
@@ -17,6 +18,6 @@ export default defineTool({
     // right. Overwrite whatever the model supplied.
     const board = { ...input, generated_at: new Date().toISOString() };
     await writeBoardAtomic(board);
-    return { written: true, prs: board.prs.length };
+    return { written: true, items: board.items.length };
   },
 });
