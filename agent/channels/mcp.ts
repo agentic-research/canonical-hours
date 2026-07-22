@@ -60,9 +60,11 @@ export const TICK_RESULTS = [
  * prBoardTick). Awaits the tick synchronously and returns the real
  * TickResult. `skipped_overlap` is a successful result, never isError: an
  * overlapping tick is a defined, healthy outcome (the in-process guard in
- * agent/lib/tick.ts is trigger-source-agnostic). Only a genuine
- * misconfiguration throw (e.g. lectioEnv() with LECTIO_URL/LECTIO_TOKEN
- * unset, which fires before runTick is reached) maps to isError.
+ * agent/lib/tick.ts is trigger-source-agnostic). Every source's own
+ * misconfiguration (including lectio's, now optional like every other
+ * source) degrades instead of throwing — isError is reserved for genuine
+ * runtime failures the tool call itself can't recover from (e.g. the MCP
+ * transport layer rejecting the request), not for a source being unset.
  *
  * `tick` is injectable for tests only; production wiring (the channel
  * below) always uses the real prBoardTick.

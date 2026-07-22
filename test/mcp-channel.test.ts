@@ -145,8 +145,10 @@ describe("trigger_tick tool", () => {
   });
 
   it("returns skipped_overlap (not isError) while another tick holds the guard — real prBoardTick", async () => {
-    // Dummy env so prBoardTick's lectioEnv() preamble passes; nothing is ever
-    // fetched — the guard rejects before any source I/O.
+    // Dummy env so the real lectio source (used inside prBoardTick, not the fake
+    // "blocked" source below) doesn't add a spurious degradation entry that would
+    // complicate this test's assertions; nothing is ever actually fetched from it
+    // — the guard rejects before any source I/O.
     process.env.LECTIO_URL = "http://127.0.0.1:1/mcp";
     process.env.LECTIO_TOKEN = "dummy";
     let release!: () => void;
@@ -182,14 +184,14 @@ describe("trigger_tick tool", () => {
     expect(await first).toBe("all_clear"); // the guard-holding tick completes normally
   });
 
-  it("maps a thrown misconfiguration (lectioEnv) to isError with the message", async () => {
+  it("missing LECTIO_URL/TOKEN degrades lectio gracefully instead of crashing the tick", async () => {
     delete process.env.LECTIO_URL;
     delete process.env.LECTIO_TOKEN;
     const client = await connect((s) => registerTriggerTickTool(s, stubRuntime()));
     const result = await client.callTool({ name: "trigger_tick", arguments: {} });
-    expect(result.isError).toBe(true);
-    const content = result.content as Array<{ type: string; text: string }>;
-    expect(content[0].text).toMatch(/LECTIO_URL/);
+    expect(result.isError).toBeFalsy();
+    const sc = result.structuredContent as { result: string };
+    expect(["all_clear", "degraded_fallback", "material", "material_unchanged"]).toContain(sc.result);
   });
 });
 
@@ -445,15 +447,16 @@ describe("e2e: real SDK client over streamable-HTTP", () => {
     }
   });
 
-  it("trigger_tick with LECTIO env unset surfaces isError through the full HTTP stack", async () => {
+  it("trigger_tick with LECTIO env unset degrades lectio gracefully through the full HTTP stack", async () => {
     delete process.env.LECTIO_URL;
     delete process.env.LECTIO_TOKEN;
     const harness = await startHarness();
     const client = await connectHttpClient(harness.url);
     try {
       const result = await client.callTool({ name: "trigger_tick", arguments: {} });
-      expect(result.isError).toBe(true);
-      expect((result.content as Array<{ text: string }>)[0].text).toMatch(/LECTIO_URL/);
+      expect(result.isError).toBeFalsy();
+      const sc = result.structuredContent as { result: string };
+      expect(["all_clear", "degraded_fallback", "material", "material_unchanged"]).toContain(sc.result);
     } finally {
       await client.close();
       await harness.close();

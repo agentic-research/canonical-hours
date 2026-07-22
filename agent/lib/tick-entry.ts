@@ -1,7 +1,8 @@
-import { lectioEnv } from "../connections/lectio";
 import { GithubSource } from "../sources/github";
 import { LectioSource, createMcpLectioCall } from "../sources/lectio";
+import { LinearSource } from "../sources/linear";
 import type { SnapshotSource } from "@canonical-hours/core";
+import type { Source } from "../sources/source";
 import { WeatherSource } from "../sources/weather";
 import { loadConfig } from "./config";
 import { runTick, TickResult } from "./tick";
@@ -23,6 +24,28 @@ if (config.weather) {
   );
 }
 
+// The activity source registry: a fourth pluggable source is one entry here
+// (plus a config table), not a rewrite. No [linear] table → LinearSource is
+// simply not registered — same "absence is a valid state" convention as weather.
+// LECTIO_URL/LECTIO_TOKEN empty-string fallback matches GITHUB_TOKEN/WEATHER_API_KEY/
+// LINEAR_API_KEY exactly: never throws here, only inside fetch() (createMcpLectioCall's
+// `new URL("")` throws lazily on first use), where runTick's per-source try/catch turns
+// it into a `lectio` degradation instead of crashing the whole tick.
+const sources: Source[] = [
+  new LectioSource(createMcpLectioCall(process.env.LECTIO_URL ?? "", process.env.LECTIO_TOKEN ?? "")),
+  new GithubSource(process.env.GITHUB_TOKEN ?? "", fetch, () => new Date(), config.github.min_remaining),
+];
+if (config.linear) {
+  sources.push(
+    // LINEAR_API_KEY is env-only (secret — same handling as GITHUB_TOKEN/WEATHER_API_KEY).
+    new LinearSource(process.env.LINEAR_API_KEY ?? "", config.linear.user_email, {
+      triageStaleDays: config.linear.triage_stale_days,
+      triageAbandonedDays: config.linear.triage_abandoned_days,
+      todoStaleDays: config.linear.todo_stale_days,
+    }),
+  );
+}
+
 /**
  * The scheduled tick, fully wired.
  *
@@ -33,13 +56,9 @@ if (config.weather) {
  * docs/eve-api-notes.md fact 2).
  */
 export async function prBoardTick(runtime: InvokeAgentRuntime): Promise<TickResult> {
-  const { url, token } = lectioEnv();
   const result = await runTick({
-    sources: [
-      new LectioSource(createMcpLectioCall(url, token)),
-      new GithubSource(process.env.GITHUB_TOKEN ?? "", fetch, () => new Date(), config.github.min_remaining),
-    ],
-    priority: ["lectio", "github"],
+    sources,
+    priority: ["lectio", "github", "linear"],
     snapshotSources,
     invokeAgent: createInvokeAgent(runtime),
   });

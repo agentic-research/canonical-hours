@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { LectioSource, classifyLectioKind, normalizeLectioKind } from "../agent/sources/lectio";
-import { lectioEnv } from "../agent/connections/lectio";
 
 const activity = JSON.parse(readFileSync("test/fixtures/lectio/authored_activity.json", "utf8"));
 const sources = JSON.parse(readFileSync("test/fixtures/lectio/list_sources.json", "utf8"));
@@ -12,14 +11,6 @@ const fakeCall = async (tool: string) => {
   if (tool === "memory_list_sources") return sources;
   throw new Error(`unexpected tool ${tool}`);
 };
-
-describe("lectioEnv", () => {
-  it("throws when LECTIO_URL/LECTIO_TOKEN are missing", () => {
-    delete process.env.LECTIO_URL;
-    delete process.env.LECTIO_TOKEN;
-    expect(() => lectioEnv()).toThrow(/LECTIO_URL/);
-  });
-});
 
 describe("LectioSource", () => {
   const source = new LectioSource(fakeCall);
