@@ -58,6 +58,12 @@ tasks:
     cmds:
       - pnpm exec tsc --noEmit -p packages/vespers/tsconfig.json
 
+  test:workerd:
+    desc: "Live @cloudflare/vitest-pool-workers smoke test proving @vespers/core runs under a simulated workerd runtime (canonical-hours-35893f) — not part of task check/ci yet: it spins up Miniflare and is slower/heavier than the rest of the suite. Run explicitly when touching packages/vespers."
+    dir: packages/vespers
+    cmds:
+      - pnpm exec vitest run --config vitest.workerd.config.mts
+
   smells:
     desc: "Structural smell gate — fail only on findings beyond docs/smell-baseline.json (see docs/smell-gate.md). --tags=gate matches mache's own ratchet convention (the composite GitHub Action hardcodes the same selection) and excludes the min-0 firehose rules (cyclomatic_complexity, magic_int_in_comparison) that fire noise on every file rather than genuine structural debt. Requires the mache CLI."
     cmds:
