@@ -190,6 +190,20 @@ that proves the abstraction — touch nothing in `merge.ts`, `board.ts`,
 or `tick.ts`. If adding a source ever requires editing those files, the
 abstraction has leaked and that's worth noticing, not working around.
 
+A source doesn't have to live in this repo at all: `agent/lib/private-sources.ts`
+(canonical-hours-dfb779) loads an optional array of `Source` implementations
+from a *private, external* package at boot — `CANONICAL_HOURS_PRIVATE_SOURCES_PATH`
+points at a built `dist/index.js`, unset means the feature is off. This
+exists for sensitive personal data (e.g. interview tracking) that shouldn't
+be in a public repo at all, not even as a stub. The external package
+(`jamestexas/canonical-hours-private`) never imports this repo and this
+repo never depends on it — it holds a structurally-compatible copy of
+`Source`/`LifecycleEvent`/`Artifact`, kept in sync by hand, and TypeScript's
+structural typing does the rest. It's also a real constraint check on the
+abstraction from the last paragraph: loading it is one line in
+`tick-entry.ts` (`sources.push(...(await loadPrivateSources(...)))`),
+nothing in `merge.ts`/`board.ts`/`tick.ts` changed to support it.
+
 The two live adapters are asymmetric on purpose, which is itself worth
 understanding as a design choice rather than an inconsistency: lectio
 (`sources/lectio.ts`) is soft-only — discovered mid-build that its

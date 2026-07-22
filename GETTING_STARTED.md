@@ -25,6 +25,12 @@ How to go from zero to a running canonical-hours PR board.
 - Optionally, a Linear API key (`LINEAR_API_KEY`) plus a `[linear]` table
   in `canonical-hours.toml` — pulls your own stale or stuck Linear issues
   onto the same board. Absent means the source is simply not registered.
+- Optionally, a private
+  [jamestexas/canonical-hours-private](https://github.com/jamestexas/canonical-hours-private)
+  checkout (`CANONICAL_HOURS_PRIVATE_SOURCES_PATH` pointing at its built
+  `dist/index.js`) for sensitive personal sources that don't belong in
+  this public repo. Absent means the feature is simply off — see that
+  repo's README.
 - An `ANTHROPIC_API_KEY` — only spent on ticks where something material
   actually changed (see [Architecture](docs/ARCHITECTURE.md) for the
   zero-LLM-call short circuit); a quiet tick costs nothing.
@@ -47,6 +53,7 @@ ANTHROPIC_API_KEY=...
 WEATHER_API_KEY=...    # optional — only if you want the weather snapshot
 LINEAR_API_KEY=...     # optional — only if you enable the [linear] source
 MCP_ACTION_TOKEN=...   # optional but recommended — see the mutating-tools note above
+CANONICAL_HOURS_PRIVATE_SOURCES_PATH=...   # optional — see the private-sources note above
 ```
 
 Secrets live in `.env`, never in the committed `canonical-hours.toml` —

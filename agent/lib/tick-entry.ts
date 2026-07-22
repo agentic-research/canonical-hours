@@ -5,6 +5,7 @@ import type { SnapshotSource } from "@canonical-hours/core";
 import type { Source } from "./sources/source";
 import { WeatherSource } from "./sources/weather";
 import { loadConfig } from "./config";
+import { loadPrivateSources } from "./private-sources";
 import { runTick, TickResult } from "./tick";
 import { createInvokeAgent, InvokeAgentRuntime } from "./invoke-agent";
 
@@ -45,6 +46,9 @@ if (config.linear) {
     }),
   );
 }
+
+// Optional private sources (canonical-hours-dfb779) — see private-sources.ts.
+sources.push(...(await loadPrivateSources(process.env.CANONICAL_HOURS_PRIVATE_SOURCES_PATH)));
 
 /**
  * The scheduled tick, fully wired.

@@ -180,6 +180,12 @@ transport and tenancy details.
   config (tick cron, weather location, GitHub GraphQL rate-limit
   backoff threshold, optional `[linear]` assignee + staleness thresholds)
   and its loader; secrets (`LINEAR_API_KEY` included) stay in `.env`.
+- `agent/lib/private-sources.ts` — loads an optional fifth pluggable
+  source registry from a private, external package (sensitive personal
+  data that doesn't belong in this public repo — see
+  [jamestexas/canonical-hours-private](https://github.com/jamestexas/canonical-hours-private)),
+  via `CANONICAL_HOURS_PRIVATE_SOURCES_PATH`. Absent means the feature is
+  simply off, same convention as `[weather]`/`[linear]`.
 - `agent/instructions.md`, `agent/skills/pr-board/SKILL.md` — the
   agent's behavioral prose (posture, tick procedure, triage rules).
 - `docs/eve-api-notes.md`, `docs/lectio-api-notes.md` — implementation

@@ -203,6 +203,11 @@
     },
     {
       "rule_id": "fan_out_skew",
+      "source_id": "test/private-sources.test.ts",
+      "count": 3
+    },
+    {
+      "rule_id": "fan_out_skew",
       "source_id": "test/tick.test.ts",
       "count": 14
     },
