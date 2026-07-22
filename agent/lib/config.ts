@@ -1,22 +1,8 @@
 import { readFileSync } from "node:fs";
 import { parse } from "@iarna/toml";
-import { z } from "zod";
+import { Config, parseConfig } from "@vespers/core";
 
-const ConfigSchema = z.object({
-  schedule: z.object({ cron: z.string().min(1) }).default({ cron: "*/5 * * * *" }),
-  weather: z.object({ location: z.string().min(1) }).optional(),
-  github: z.object({ min_remaining: z.number().int().positive() }).default({ min_remaining: 200 }),
-  linear: z
-    .object({
-      team: z.string().min(1),
-      user_email: z.string().min(1),
-      triage_stale_days: z.number().int().positive().default(7),
-      triage_abandoned_days: z.number().int().positive().default(30),
-      todo_stale_days: z.number().int().positive().default(30),
-    })
-    .optional(),
-});
-export type Config = z.infer<typeof ConfigSchema>;
+export type { Config };
 
 /**
  * Synchronous by design: agent/schedules/pr-board.ts consumes this at module
@@ -29,6 +15,11 @@ export type Config = z.infer<typeof ConfigSchema>;
  * data failures degrade; config failures are deploy-time bugs and should
  * fail the deploy. Cron validity beyond non-emptiness is delegated to eve's
  * defineSchedule, which owns cron semantics.
+ *
+ * The file-reading + TOML-parsing here is the one Node-filesystem-specific
+ * part of config loading; the actual shape validation lives in
+ * @vespers/core's parseConfig so it's testable/reusable without a
+ * filesystem (canonical-hours-35893f).
  */
 export function loadConfig(path = "canonical-hours.toml"): Config {
   let raw: string;
@@ -36,9 +27,9 @@ export function loadConfig(path = "canonical-hours.toml"): Config {
     raw = readFileSync(path, "utf8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return ConfigSchema.parse({});
+      return parseConfig({});
     }
     throw err;
   }
-  return ConfigSchema.parse(parse(raw));
+  return parseConfig(parse(raw));
 }
