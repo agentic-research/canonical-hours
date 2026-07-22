@@ -1,0 +1,26 @@
+# Structural smell ratchet gate (docs/smell-gate.md). Uses mache's own
+# composite Action rather than reimplementing the invocation here — its
+# --tags=gate rule selection must keep matching this repo's Taskfile.yml
+# `smells` target (see docs/smell-gate.md's "CI wiring" section) or CI and
+# local dev diverge.
+name: smells
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write # SARIF upload to the code-scanning tab
+
+jobs:
+  smells:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: agentic-research/mache/.github/actions/find-smells@dd5a30be1908ae4a9f52ec7b6c27abe5e4a8241d # v0.18.0
+        with:
+          mache-version: v0.18.0
+          baseline: docs/smell-baseline.json

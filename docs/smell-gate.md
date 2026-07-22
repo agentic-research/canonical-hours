@@ -1,9 +1,8 @@
-# Structural smell gate (bootstrap)
+# Structural smell gate
 
-Status: **baseline committed, CI wiring deferred.** This repo has no CI
-workflow at all yet (see ARCHITECTURE.md, "What's verified, and what's
-not"), so this document bootstraps the ratchet and records how to wire
-the gate when CI lands — it deliberately does not create a workflow.
+Status: **baseline committed, CI wired** (canonical-hours-4ba370 fixed
+the pre-commit hook; the CI half landed via `.github/workflows/ci.yml`
+and `.github/workflows/smells.yml`, using mache's composite Action).
 
 ## What exists now
 
@@ -11,6 +10,17 @@ the gate when CI lands — it deliberately does not create a workflow.
   smell present at bootstrap time, grandfathered. The gate model is
   "no *new* debt": findings already in the baseline never fail a run;
   findings not in it do.
+- `task smells` / `task smells:baseline` run `--tags=gate` — the same
+  rule-tag selection mache's own Taskfile and its composite GitHub
+  Action use (verified directly against `~/remotes/art/mache`'s
+  Taskfile.yml and `.github/actions/find-smells/action.yml`). This
+  excludes the two rules with `Tags: null` upstream —
+  `cyclomatic_complexity` and `magic_int_in_comparison` — which mache
+  treats as always-firing "firehose" advisories rather than ratchet
+  material, not gate signals. Keeping our local tag selection aligned
+  with the Action's hardcoded `--tags=gate` is what makes it safe to
+  gate CI with the shared Action directly instead of reimplementing
+  the invocation in YAML.
 
 ## Regenerating locally
 
@@ -71,21 +81,18 @@ pathspec-restricted commits correctly *as git defines them* — it
 can't paper over a two-commit split that's structurally asking for two
 different, mutually-inconsistent trees.
 
-## Future CI wiring (when a workflow exists)
+## CI wiring
 
-`agentic-research/mache` ships a composite GitHub Action that mache
-itself dogfoods. When this repo grows a CI workflow, add a job shaped
-like the sketch below. **The sketch is illustrative** — confirm the
-action's exact input names against
-`agentic-research/mache`'s `examples/smell-rules/README.md` and the
-action definition at `.github/actions/find-smells` before wiring it.
+`.github/workflows/smells.yml` uses `agentic-research/mache`'s
+composite GitHub Action (the same one mache dogfoods on itself), pinned
+to a release tag rather than `@main`. It gates on
+`docs/smell-baseline.json` and uploads SARIF to the code-scanning tab.
+`.github/workflows/ci.yml` runs `task check` (typecheck + test) —
+independent of the smell gate, its own workflow.
 
-    # sketch — do not commit as-is; verify inputs against the action
-    jobs:
-      smells:
-        runs-on: ubuntu-latest
-        steps:
-          - uses: actions/checkout@v4
-          - uses: agentic-research/mache/.github/actions/find-smells@main
-            with:
-              baseline: docs/smell-baseline.json
+If the pinned mache release is bumped, re-verify the action's exact
+input names and default rule-tag selection against
+`agentic-research/mache`'s `.github/actions/find-smells/action.yml`
+and `examples/smell-rules/README.md` before assuming they're unchanged
+— the action's `--tags=gate` selection must keep matching this repo's
+own `task smells` invocation (see above) or CI and local dev diverge.

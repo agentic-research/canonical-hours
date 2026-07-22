@@ -53,16 +53,16 @@ tasks:
       - pnpm exec tsc --noEmit
 
   smells:
-    desc: "Structural smell gate — fail only on findings beyond docs/smell-baseline.json (bootstrap; see docs/smell-gate.md). Requires the mache CLI."
+    desc: "Structural smell gate — fail only on findings beyond docs/smell-baseline.json (see docs/smell-gate.md). --tags=gate matches mache's own ratchet convention (the composite GitHub Action hardcodes the same selection) and excludes the min-0 firehose rules (cyclomatic_complexity, magic_int_in_comparison) that fire noise on every file rather than genuine structural debt. Requires the mache CLI."
     cmds:
       - mache build . smells.db
-      - mache find-smells --db smells.db --rule '*' --limit 100000 --baseline-root "$PWD" --baseline docs/smell-baseline.json
+      - mache find-smells --db smells.db --rule '*' --tags=gate --limit 100000 --baseline-root "$PWD" --baseline docs/smell-baseline.json
 
   smells:baseline:
-    desc: "Regenerate docs/smell-baseline.json from the current scan. Deliberate re-grandfathering only (e.g. after an accepted refactor) — day-to-day use `task smells`. In a tree with any OTHER concurrent, unrelated unstaged/untracked WIP present, prefer `task smells:baseline:safe` instead — this target scans the real working tree as-is, WIP included (canonical-hours-4ba370)."
+    desc: "Regenerate docs/smell-baseline.json from the current scan (same --tags=gate selection as `task smells`). Deliberate re-grandfathering only (e.g. after an accepted refactor) — day-to-day use `task smells`. In a tree with any OTHER concurrent, unrelated unstaged/untracked WIP present, prefer `task smells:baseline:safe` instead — this target scans the real working tree as-is, WIP included (canonical-hours-4ba370)."
     cmds:
       - mache build . smells.db
-      - mache find-smells --db smells.db --rule '*' --limit 100000 --baseline-root "$PWD" --write-baseline docs/smell-baseline.json
+      - mache find-smells --db smells.db --rule '*' --tags=gate --limit 100000 --baseline-root "$PWD" --write-baseline docs/smell-baseline.json
 
   smells:baseline:safe:
     desc: "Like `smells:baseline`, but isolated from any concurrent unrelated WIP elsewhere in the working tree (canonical-hours-4ba370) — regenerates against the STAGED tree only, via the same git checkout-index isolation the pre-commit hook uses. Prefer this over `smells:baseline` whenever another process might have unstaged/untracked changes on disk."
@@ -74,7 +74,7 @@ tasks:
     deps: [typecheck, test]
 
   ci:
-    desc: "The exact gate CI should run once a workflow is added. Currently identical to `check` — smells is opt-in until docs/smell-gate.md's CI wiring lands."
+    desc: "The exact gate CI runs (.github/workflows/ci.yml): typecheck + test. The smell gate runs as its own workflow (.github/workflows/smells.yml, via mache's composite action) rather than through this task — see docs/smell-gate.md."
     cmds:
       - task: check
 
