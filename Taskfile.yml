@@ -78,6 +78,11 @@ tasks:
     cmds:
       - task: check
 
+  sync-server-json-version:
+    desc: "Update server.json's version to match package.json's, via a surgical string replacement (canonical-hours-5d74fc) — run this after bumping the package version. test/server-json.test.ts still catches drift if you forget."
+    cmds:
+      - node scripts/sync-server-json-version.mjs
+
   install-hooks:
     desc: "Symlink scripts/git-hooks/* into .git/hooks/. Run once per clone so the smell gate (task smells) fires automatically before every commit."
     cmds:

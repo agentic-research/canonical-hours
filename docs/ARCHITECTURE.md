@@ -593,6 +593,12 @@ resolves. It declares:
   declared — this small tool set doesn't need splitting into separate
   cloister backends, and cloister's resolver falls back to one coarse
   backend for exactly this case.
+- `version`, kept in sync with `package.json`'s version — not computed
+  at runtime, since external consumers (the MCP registry, cloister)
+  read this committed file directly, not a build output. Run
+  `task sync-server-json-version` (canonical-hours-5d74fc) after
+  bumping the package version; `test/server-json.test.ts` fails loudly
+  if the two ever drift, whether or not you remembered to run it.
 
 ### Pointing a client at it
 

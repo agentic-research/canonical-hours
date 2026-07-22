@@ -119,12 +119,12 @@
     {
       "rule_id": "duplicate_definitions",
       "source_id": "test/github-source.test.ts",
-      "count": 5
+      "count": 4
     },
     {
       "rule_id": "duplicate_definitions",
       "source_id": "test/linear-source.test.ts",
-      "count": 2
+      "count": 1
     },
     {
       "rule_id": "duplicate_definitions",
@@ -205,6 +205,11 @@
       "rule_id": "fan_out_skew",
       "source_id": "test/private-sources.test.ts",
       "count": 3
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "test/sync-server-json-version.test.ts",
+      "count": 1
     },
     {
       "rule_id": "fan_out_skew",
