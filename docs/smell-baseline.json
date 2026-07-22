@@ -303,6 +303,11 @@
     },
     {
       "rule_id": "fan_out_skew",
+      "source_id": "test/merge.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
       "source_id": "test/tick.test.ts",
       "count": 14
     },

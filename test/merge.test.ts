@@ -17,6 +17,18 @@ const event = (uri: string, observations: Observation[], hint?: LifecycleEvent["
   artifact: artifact(uri), observations, state_hint: hint,
 });
 
+const issueArtifact = (uri: string): Artifact => {
+  const [team, identifier] = uri.slice("issue:".length).split("/");
+  return { uri, kind: "issue", team, identifier, title: "t", url: "https://linear.app/x" };
+};
+
+const issueEvent = (
+  uri: string,
+  observations: Observation[],
+  hint?: LifecycleEvent["state_hint"],
+  extra?: LifecycleEvent["extra"],
+): LifecycleEvent => ({ artifact: issueArtifact(uri), observations, state_hint: hint, extra });
+
 describe("foldState", () => {
   it("hard merge/close wins everything → resolved", () => {
     expect(foldState([obs({ type: "merge" })], [])).toBe("resolved");
@@ -148,5 +160,35 @@ describe("mergeEvents", () => {
     github[0].extra = { merge_ready: true };
     const merged = mergeEvents({ lectio, github }, ["lectio", "github"]);
     expect(merged[0].extra).toEqual({ merge_ready: false });
+  });
+
+  it("an issue-kind artifact with a needs_you state_hint and no observations folds to needs_you (LinearSource's staleness-only case)", () => {
+    const events = [issueEvent("issue:art/art-1", [], "needs_you", { reason: "P1 stuck in Triage for 9d" })];
+    const merged = mergeEvents({ linear: events }, ["lectio", "github", "linear"]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].artifact.kind).toBe("issue");
+    expect(merged[0].state).toBe("needs_you");
+    expect(merged[0].extra).toEqual({ reason: "P1 stuck in Triage for 9d" });
+  });
+
+  it("an issue-kind artifact with a hard close observation folds to resolved (LinearSource's completed/canceled case) — zero new foldState code required", () => {
+    const closeObs: Observation = {
+      artifact_uri: "issue:art/art-2", at: "2026-07-21T10:00:00Z", author: "",
+      type: "close", payload: {}, classification: "hard",
+    };
+    const events = [issueEvent("issue:art/art-2", [closeObs])];
+    const merged = mergeEvents({ linear: events }, ["lectio", "github", "linear"]);
+    expect(merged[0].state).toBe("resolved");
+  });
+
+  it("issue and pr artifacts coexist in the same mergeEvents call, each folding independently", () => {
+    const prEvents = [event("pr:o/r#1", [obs({ type: "merge" })])];
+    const linearEvents = [issueEvent("issue:art/art-3", [], "needs_you", { reason: "In Todo, untouched 31d — done elsewhere?" })];
+    const merged = mergeEvents({ github: prEvents, linear: linearEvents }, ["lectio", "github", "linear"]);
+    expect(merged).toHaveLength(2);
+    const pr = merged.find((m) => m.artifact.kind === "pr")!;
+    const issue = merged.find((m) => m.artifact.kind === "issue")!;
+    expect(pr.state).toBe("resolved");
+    expect(issue.state).toBe("needs_you");
   });
 });
