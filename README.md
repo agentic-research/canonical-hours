@@ -113,14 +113,27 @@ servers behind one endpoint) or any other MCP client — no separate
 process, no polling loop on the client side.
 
 Four tools — the first two mirror what's already exposed over REST; the
-last two are opt-in mutating actions that **never fire from the tick**:
+last two are opt-in mutating actions that **never fire from the tick** and
+are **default-deny** (canonical-hours-49ba33 — see below):
 
 | Tool | Kind | Behavior |
 | --- | --- | --- |
 | `get_board` | read-only | Same data as `GET /board` / `GET /board/md` — the current board as structured JSON plus rendered markdown. Never triggers a tick. |
 | `trigger_tick` | action | Runs a tick now (the same `prBoardTick()` the cron schedule calls) and returns the real six-way `TickResult`, including `skipped_overlap` — a legitimate result, not an error, when a tick is already in flight. |
-| `resolve_addressed_review_threads` | action | Resolves each unresolved review thread on a PR whose file was changed in a commit landed after the thread's originating review (mechanical eligibility, ported from `watch-pr`). Mutates GitHub; call with a PR as `owner/repo#123` or a github.com PR URL. |
-| `dismiss_stale_bot_reviews` | action | Dismisses each `CHANGES_REQUESTED` review from a bot account where a fix commit landed after it (bot = GraphQL `__typename` `Bot` or a `[bot]`-suffixed login, never a bare `-bot`). Mutates GitHub; same PR-reference input. |
+| `resolve_addressed_review_threads` | action, gated | Resolves each unresolved review thread on a PR whose file was changed in a commit landed after the thread's originating review (mechanical eligibility, ported from `watch-pr`). Mutates GitHub; call with a PR as `owner/repo#123` or a github.com PR URL. |
+| `dismiss_stale_bot_reviews` | action, gated | Dismisses each `CHANGES_REQUESTED` review from a bot account where a fix commit landed after it (bot = GraphQL `__typename` `Bot` or a `[bot]`-suffixed login, never a bare `-bot`). Mutates GitHub; same PR-reference input. |
+
+The two mutating tools go through `agent/lib/action-gate.ts`'s
+`ActionGate` before touching GitHub — a pluggable authorization hook, not
+eve's `defineTool` `approval()` primitive (that gates a *model's own* tool
+call inside an eve session; these tools are called by external MCP
+clients over a stateless HTTP channel, outside any session, so it doesn't
+apply here). The default implementation, `sharedSecretGate()`, is
+default-deny: with `MCP_ACTION_TOKEN` unset, every call is refused before
+it reaches GitHub; set it, and callers must send a matching
+`Authorization: Bearer <token>` header. The hook is swappable — a
+stronger check (e.g. verifying a lease certificate a proxy might one day
+forward) can replace it without touching the tools themselves.
 
 `server.json` at the repo root is the registry document a cloister
 `cloister add` (or equivalent MCP client registration) consumes: it
@@ -161,7 +174,8 @@ transport and tenancy details.
   `dismiss_stale_bot_reviews`) and its registry document, for cloister
   and other MCP clients. The two action tools' mechanical eligibility
   lives in `agent/lib/{thread-resolution,bot-review-dismissal}.ts`,
-  sharing `agent/lib/{pr-ref,github-graphql}.ts`.
+  sharing `agent/lib/{pr-ref,github-graphql}.ts`. `agent/lib/action-gate.ts`
+  is the pluggable default-deny gate those two tools run through.
 - `canonical-hours.toml`, `agent/lib/config.ts` — committed non-secret
   config (tick cron, weather location, GitHub GraphQL rate-limit
   backoff threshold, optional `[linear]` assignee + staleness thresholds)

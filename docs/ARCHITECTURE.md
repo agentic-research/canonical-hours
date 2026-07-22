@@ -427,7 +427,47 @@ graph LR
   below. Both are strictly opt-in: they mutate GitHub only when a caller
   invokes them explicitly, and **neither is ever reachable from
   `runTick`** — same trust boundary as `trigger_tick`, not the automatic
-  tick's.
+  tick's. Unlike `get_board`/`trigger_tick`, both are also gated (below)
+  — the tick can't mutate GitHub, but an external caller invoking these
+  two directly needs authorizing first.
+
+### The action-tool gate (canonical-hours-49ba33)
+
+`resolve_addressed_review_threads` and `dismiss_stale_bot_reviews` are
+registered on a raw `@modelcontextprotocol/sdk` `McpServer`, reachable
+by any external MCP client that can hit `POST /mcp` — there's no
+session, no caller identity beyond whatever the HTTP layer carries.
+eve's own human-in-the-loop primitive (`approval()` from
+`eve/tools/approval`, used with `defineTool`) does not cover this path:
+it pauses a *model's own* tool call mid eve-session, durably, via
+`session.waiting` — there is no session here to pause. The two tools
+are called directly, outside any eve-hosted agent run.
+
+Both go through `agent/lib/action-gate.ts`'s `ActionGate` — `(ctx:
+{toolName, headers}) => {allowed: true} | {allowed: false, reason}` —
+before either function that actually mutates GitHub
+(`resolveAddressedThreads`/`dismissStaleBotReviews`) is called. The
+default implementation, `sharedSecretGate()`, is **default-deny**: with
+`MCP_ACTION_TOKEN` unset, every call is denied, not silently allowed;
+set it, and a caller must send a matching `Authorization: Bearer
+<token>` header (compared with `node:crypto`'s `timingSafeEqual`, since
+a `!==` string compare would leak timing information proportional to
+the matching prefix). `ActionGate` is deliberately just a function
+type, not a fixed implementation, so a stronger check can replace it
+without touching the tools: investigated and explicitly ruled out for
+now was having [cloister](../cloister) host canonical-hours directly
+(cloister runs on Cloudflare Workers/`workerd` — sandboxed V8 isolates
+with no `child_process` — while eve produces a Node.js/Nitro server;
+different runtimes, confirmed against both codebases, not a fit) and
+reusing cloister's own Signet lease-certificate/attestation gate
+(cloister's gate covers the hop *into* its router; canonical-hours runs
+as its own external, non-workerd-resident process per its own
+`server.json` tenancy declaration — `shares_workerd_with: []` — so that
+gate never reaches this far). If a proxy in front of canonical-hours
+ever forwards a verifiable credential (a Signet lease cert or similar),
+a second `ActionGate` implementation can check it instead, with no
+change to `resolve_addressed_review_threads`/`dismiss_stale_bot_reviews`
+themselves.
 
 The load-bearing property that makes a second trigger safe with zero
 new concurrency code: the in-process overlap guard

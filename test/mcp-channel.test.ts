@@ -19,11 +19,15 @@ import { Board, BoardSchema, renderBoardMd, writeBoardAtomic } from "../agent/li
 import { runTick, _resetTickGuardForTests } from "../agent/lib/tick";
 import type { InvokeAgentRuntime } from "../agent/lib/invoke-agent";
 import type { LifecycleEvent, Source } from "../agent/lib/sources/source";
+import type { ActionGate } from "../agent/lib/action-gate";
+
+/** Test-only gate for tests exercising pr-parsing/delegation, not the gate itself. */
+const ALLOW_ALL: ActionGate = () => ({ allowed: true });
 
 // Env the suite mutates; saved/restored around every test so mcp tests can't
 // leak BOARD_DIR/LECTIO_* state into each other (vitest isolates files per
 // worker, so cross-file leakage is not a concern).
-const ENV_KEYS = ["BOARD_DIR", "LECTIO_URL", "LECTIO_TOKEN"] as const;
+const ENV_KEYS = ["BOARD_DIR", "LECTIO_URL", "LECTIO_TOKEN", "MCP_ACTION_TOKEN"] as const;
 let savedEnv: Record<string, string | undefined>;
 beforeEach(() => {
   savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
@@ -202,7 +206,7 @@ describe("resolve_addressed_review_threads tool", () => {
     const spy = vi
       .spyOn(threadResolution, "resolveAddressedThreads")
       .mockResolvedValue({ resolved: ["t1"], skipped: [], failed: [] });
-    const client = await connect(registerResolveThreadsTool);
+    const client = await connect((server) => registerResolveThreadsTool(server, ALLOW_ALL));
     const result = await client.callTool({ name: "resolve_addressed_review_threads", arguments: { pr: "o/r#1" } });
     expect(result.isError).toBeFalsy();
     expect(spy).toHaveBeenCalledWith({ owner: "o", repo: "r", number: 1 }, expect.any(String), fetch);
@@ -213,7 +217,7 @@ describe("resolve_addressed_review_threads tool", () => {
 
   it("returns isError on an invalid pr reference (never touches the network)", async () => {
     const spy = vi.spyOn(threadResolution, "resolveAddressedThreads");
-    const client = await connect(registerResolveThreadsTool);
+    const client = await connect((server) => registerResolveThreadsTool(server, ALLOW_ALL));
     const result = await client.callTool({ name: "resolve_addressed_review_threads", arguments: { pr: "not a pr" } });
     expect(result.isError).toBe(true);
     expect(spy).not.toHaveBeenCalled();
@@ -227,7 +231,7 @@ describe("dismiss_stale_bot_reviews tool", () => {
     const spy = vi
       .spyOn(botReviewDismissal, "dismissStaleBotReviews")
       .mockResolvedValue({ dismissed: ["r1"], skipped: [], failed: [] });
-    const client = await connect(registerDismissBotReviewsTool);
+    const client = await connect((server) => registerDismissBotReviewsTool(server, ALLOW_ALL));
     const result = await client.callTool({ name: "dismiss_stale_bot_reviews", arguments: { pr: "o/r#1" } });
     expect(result.isError).toBeFalsy();
     expect(spy).toHaveBeenCalledWith({ owner: "o", repo: "r", number: 1 }, expect.any(String), fetch);
@@ -238,7 +242,7 @@ describe("dismiss_stale_bot_reviews tool", () => {
 
   it("returns isError on an invalid pr reference (never touches the network)", async () => {
     const spy = vi.spyOn(botReviewDismissal, "dismissStaleBotReviews");
-    const client = await connect(registerDismissBotReviewsTool);
+    const client = await connect((server) => registerDismissBotReviewsTool(server, ALLOW_ALL));
     const result = await client.callTool({ name: "dismiss_stale_bot_reviews", arguments: { pr: "not a pr" } });
     expect(result.isError).toBe(true);
     expect(spy).not.toHaveBeenCalled();
@@ -354,9 +358,11 @@ async function startHarness(): Promise<{ url: string; close: () => Promise<void>
   };
 }
 
-async function connectHttpClient(url: string): Promise<Client> {
+async function connectHttpClient(url: string, headers?: Record<string, string>): Promise<Client> {
   const client = new Client({ name: "mcp-e2e-test", version: "0.0.0" });
-  await client.connect(new StreamableHTTPClientTransport(new URL(url)));
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(url), headers ? { requestInit: { headers } } : undefined),
+  );
   return client;
 }
 
@@ -461,5 +467,74 @@ describe("e2e: real SDK client over streamable-HTTP", () => {
       await client.close();
       await harness.close();
     }
+  });
+
+  // canonical-hours-49ba33: production wiring (buildMcpServer's default
+  // sharedSecretGate()) over the real HTTP stack — the only path that
+  // actually populates extra.requestInfo.headers (the InMemory-transport
+  // tests above use an explicit ALLOW_ALL gate instead, since they're
+  // testing pr-parsing/delegation, not the gate).
+  describe("mutating action tools are gated (canonical-hours-49ba33)", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it("denies resolve_addressed_review_threads with MCP_ACTION_TOKEN unset — never touches GitHub", async () => {
+      delete process.env.MCP_ACTION_TOKEN;
+      const spy = vi.spyOn(threadResolution, "resolveAddressedThreads");
+      const harness = await startHarness();
+      const client = await connectHttpClient(harness.url);
+      try {
+        const result = await client.callTool({
+          name: "resolve_addressed_review_threads",
+          arguments: { pr: "o/r#1" },
+        });
+        expect(result.isError).toBe(true);
+        const content = result.content as Array<{ type: string; text: string }>;
+        expect(content[0].text).toContain("denied");
+        expect(spy).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+        await harness.close();
+      }
+    });
+
+    it("denies dismiss_stale_bot_reviews with a wrong bearer token — never touches GitHub", async () => {
+      process.env.MCP_ACTION_TOKEN = "correct-token";
+      const spy = vi.spyOn(botReviewDismissal, "dismissStaleBotReviews");
+      const harness = await startHarness();
+      const client = await connectHttpClient(harness.url, { Authorization: "Bearer wrong-token" });
+      try {
+        const result = await client.callTool({
+          name: "dismiss_stale_bot_reviews",
+          arguments: { pr: "o/r#1" },
+        });
+        expect(result.isError).toBe(true);
+        expect(spy).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+        await harness.close();
+      }
+    });
+
+    it("allows resolve_addressed_review_threads with the correct bearer token", async () => {
+      process.env.MCP_ACTION_TOKEN = "correct-token";
+      vi.spyOn(threadResolution, "resolveAddressedThreads").mockResolvedValue({
+        resolved: ["t1"],
+        skipped: [],
+        failed: [],
+      });
+      const harness = await startHarness();
+      const client = await connectHttpClient(harness.url, { Authorization: "Bearer correct-token" });
+      try {
+        const result = await client.callTool({
+          name: "resolve_addressed_review_threads",
+          arguments: { pr: "o/r#1" },
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toEqual({ resolved: ["t1"], skipped: [], failed: [] });
+      } finally {
+        await client.close();
+        await harness.close();
+      }
+    });
   });
 });
