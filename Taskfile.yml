@@ -52,6 +52,12 @@ tasks:
     cmds:
       - pnpm exec tsc --noEmit
 
+  typecheck:vespers:
+    desc: "TypeScript type check for packages/vespers under its own workers-typed tsconfig (no 'node' types) — the mechanical guardrail against an accidental Node-only import in the portable engine."
+    deps: [deps]
+    cmds:
+      - pnpm exec tsc --noEmit -p packages/vespers/tsconfig.json
+
   smells:
     desc: "Structural smell gate — fail only on findings beyond docs/smell-baseline.json (see docs/smell-gate.md). --tags=gate matches mache's own ratchet convention (the composite GitHub Action hardcodes the same selection) and excludes the min-0 firehose rules (cyclomatic_complexity, magic_int_in_comparison) that fire noise on every file rather than genuine structural debt. Requires the mache CLI."
     cmds:
@@ -71,7 +77,7 @@ tasks:
 
   check:
     desc: "Fast gate — typecheck + test. Run this in the inner dev loop, and (once a CI workflow exists) in CI."
-    deps: [typecheck, test]
+    deps: [typecheck, typecheck:vespers, test]
 
   ci:
     desc: "The exact gate CI runs (.github/workflows/ci.yml): typecheck + test. The smell gate runs as its own workflow (.github/workflows/smells.yml, via mache's composite action) rather than through this task — see docs/smell-gate.md."

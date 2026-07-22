@@ -20,6 +20,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.16",
     "@canonical-hours/core": "workspace:*",
+    "@vespers/core": "workspace:*",
     "@iarna/toml": "^2.2.5",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@vercel/connect": "0.4.0",
