@@ -48,16 +48,6 @@
     },
     {
       "rule_id": "dead_code",
-      "source_id": "packages/core/src/fetch-window.ts",
-      "count": 1
-    },
-    {
-      "rule_id": "dead_code",
-      "source_id": "packages/core/src/snapshot.ts",
-      "count": 2
-    },
-    {
-      "rule_id": "dead_code",
       "source_id": "packages/vespers/src/board.ts",
       "count": 3
     },
@@ -123,31 +113,6 @@
     },
     {
       "rule_id": "duplicate_definitions",
-      "source_id": "packages/core/src/fetch-window.ts",
-      "count": 1
-    },
-    {
-      "rule_id": "duplicate_definitions",
-      "source_id": "packages/core/src/snapshot.ts",
-      "count": 2
-    },
-    {
-      "rule_id": "duplicate_definitions",
-      "source_id": "packages/core/test/snapshot.test.ts",
-      "count": 1
-    },
-    {
-      "rule_id": "duplicate_definitions",
-      "source_id": "packages/vespers/src/fetch-window.ts",
-      "count": 1
-    },
-    {
-      "rule_id": "duplicate_definitions",
-      "source_id": "packages/vespers/src/snapshot.ts",
-      "count": 2
-    },
-    {
-      "rule_id": "duplicate_definitions",
       "source_id": "packages/vespers/test/board.test.ts",
       "count": 1
     },
@@ -155,11 +120,6 @@
       "rule_id": "duplicate_definitions",
       "source_id": "packages/vespers/test/merge.test.ts",
       "count": 2
-    },
-    {
-      "rule_id": "duplicate_definitions",
-      "source_id": "packages/vespers/test/snapshot.test.ts",
-      "count": 1
     },
     {
       "rule_id": "duplicate_definitions",
