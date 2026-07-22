@@ -958,23 +958,26 @@ handling of this channel — that gap is closed below.
     route an actual tool call to canonical-hours. Tracked as
     `canonical-hours-f17ca7`.
 
+**Resolved without a deployment (canonical-hours-3169e1): the material
+path's board write lands on the same filesystem the tick/HTTP route
+reads from.** Not by a deploy-time smoke test — by eve's own documented
+tool-execution model, read directly from the installed package
+(`node_modules/eve/docs/tools/overview.mdx`, v0.27.0): "Tools run in
+your app runtime with full access to `process.env`, not in the
+sandbox." A tool only lands in the sandbox by explicitly calling
+`ctx.getSandbox()`; `agent/tools/board.ts`'s `execute(input)` doesn't
+even take a `ctx` parameter. Confirmed further by reading the code:
+`agent/tools/board.ts` and `agent/lib/tick-entry.ts`'s
+`TickDeps.boardStore` both import the same `nodeBoardStore` singleton
+from `agent/lib/node-board-store.ts` — the same object, same process,
+same `BOARD_DIR`-resolved path, not merely "the same kind of store."
+The `agent/sandbox.ts` machinery this doc previously cited as making a
+sandboxed write "plausible" is real, but nothing in this repo's tools
+currently opts into it. See `docs/eve-api-notes.md` fact 3 for the full
+finding.
+
 **Not yet verified — needs a real deployment:**
 
-- **Whether the material path's board write lands on the same
-  filesystem the tick/HTTP route reads from.** The deterministic paths
-  use plain `node:fs` directly, with no sandbox indirection, and that's
-  confirmed live. But the Haiku agent's own `board` tool call
-  (`agent/tools/board.ts`) executes inside eve's own managed execution
-  context for that agent turn — and if that context runs in a
-  sandboxed filesystem (plausible given the sandbox-backend machinery
-  in `agent/sandbox.ts`), its write could land somewhere `readBoard()`
-  on the host never sees. This wouldn't crash anything — `runTick`'s
-  retry would simply find no fresh board and fall through to the
-  deterministic degraded-fallback board — but it would mean LLM
-  summarization silently never takes effect in production. This needs
-  a deploy-time smoke test: trigger a material tick, `curl /board` on
-  the host, and confirm the LLM-authored `summary` field is actually
-  present.
 - **Concurrent-invocation safety in production.** The tick's overlap
   guard (`agent/lib/tick.ts`'s module-level `running` flag) is
   in-process only. It's what makes `writeBoardAtomic`'s
@@ -999,7 +1002,6 @@ handling of this channel — that gap is closed below.
 Tracked as beads (`rsry_bead_search` against this repo, not visible via
 local `bd list` — see note below):
 
-- `canonical-hours-3169e1` — the material-path filesystem question above.
 - `canonical-hours-25ff14` — the in-process-only overlap guard above.
 - `canonical-hours-f325c3` — a `merge.ts` regression test that doesn't
   actually exercise the bug it claims to guard against (currently
