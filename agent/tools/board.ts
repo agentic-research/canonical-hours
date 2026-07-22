@@ -1,5 +1,6 @@
 import { defineTool } from "eve/tools";
-import { BoardSchema, writeBoardAtomic } from "../lib/board";
+import { BoardSchema } from "@vespers/core";
+import { nodeBoardStore } from "../lib/node-board-store";
 
 export default defineTool({
   description:
@@ -17,7 +18,7 @@ export default defineTool({
     // failing"), so it must not depend on the LLM getting its own timestamp
     // right. Overwrite whatever the model supplied.
     const board = { ...input, generated_at: new Date().toISOString() };
-    await writeBoardAtomic(board);
+    await nodeBoardStore.write(board);
     return { written: true, items: board.items.length };
   },
 });

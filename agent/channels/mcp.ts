@@ -3,7 +3,8 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { z } from "zod";
 import { defineChannel, GET, POST } from "eve/channels";
 import type { SessionAuthContext } from "eve/context";
-import { BoardSchema, readBoard, renderBoardMd } from "../lib/board";
+import { BoardSchema, renderBoardMd } from "@vespers/core";
+import { nodeBoardStore } from "../lib/node-board-store";
 import { prBoardTick } from "../lib/tick-entry";
 import type { TickResult } from "../lib/tick";
 import type { InvokeAgentRuntime } from "../lib/invoke-agent";
@@ -31,7 +32,7 @@ export function registerGetBoardTool(server: McpServer): void {
       outputSchema: { board: BoardSchema.nullable() },
     },
     async () => {
-      const board = await readBoard();
+      const board = await nodeBoardStore.read();
       return {
         content: [
           {

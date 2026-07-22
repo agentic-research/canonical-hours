@@ -3,7 +3,8 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import boardTool from "../agent/tools/board";
-import { readBoard, Board } from "../agent/lib/board";
+import { Board } from "@vespers/core";
+import { NodeBoardStore } from "../agent/lib/node-board-store";
 import type { ToolContext } from "eve/tools";
 
 const fakeCtx = {} as ToolContext;
@@ -33,7 +34,7 @@ describe("board tool", () => {
 
       expect(result).toEqual({ written: true, items: 0 });
 
-      const written = await readBoard(dir);
+      const written = await new NodeBoardStore(dir).read();
       expect(written).not.toBeNull();
       expect(written!.generated_at).not.toBe("2020-01-01T00:00:00Z");
       const writtenTime = new Date(written!.generated_at).getTime();

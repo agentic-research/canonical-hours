@@ -1,10 +1,11 @@
 import { defineChannel, GET } from "eve/channels";
-import { readBoard, renderBoardMd } from "../lib/board";
+import { renderBoardMd } from "@vespers/core";
+import { nodeBoardStore } from "../lib/node-board-store";
 
 export default defineChannel({
   routes: [
     GET("/board", async () => {
-      const board = await readBoard();
+      const board = await nodeBoardStore.read();
       if (!board) {
         return new Response(JSON.stringify({ error: "no board yet" }), {
           status: 404,
@@ -14,7 +15,7 @@ export default defineChannel({
       return Response.json(board);
     }),
     GET("/board/md", async () => {
-      const board = await readBoard();
+      const board = await nodeBoardStore.read();
       if (!board) {
         return new Response("no board yet", { status: 404 });
       }
