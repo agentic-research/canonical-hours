@@ -4,7 +4,8 @@ canonical-hours is a standing [eve.dev](https://eve.dev) agent for
 repeatable checks — run on a schedule, or triggered on demand via MCP.
 PR board is the flagship one: **"how are my PRs, and does anything
 need me?"** It pulls your authored-PR activity from GitHub and
-[lectio](../lectio) and folds it into a short status board, served
+[lectio](../lectio), and your stale or stuck Linear issues from Linear
+itself, and folds all of it into one short status board, served
 over HTTP. Ticks fire on a configurable cron by default, or right now
 via the MCP `trigger_tick` tool — either way, canonical-hours never
 pushes; you poll or call.
@@ -32,14 +33,18 @@ matrix: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#whats-verified-and-whats-not
 <details>
 <summary><strong>How it works</strong></summary>
 
-Each tick fetches from two sources — GitHub (the sole source of review
-*verdicts*, over its GraphQL API) and lectio (activity only, no
-verdicts) — merges them by canonical PR, folds the merged observations
-into one of four lifecycle states (`opened` → `active` → `needs_you` →
-`resolved`), and, only if something actually needs attention, hands
-the material off to a Haiku model to triage and summarize. A quiet
-tick costs zero LLM calls. The board is written atomically so a poll
-never sees a half-written file.
+Each tick fetches from its activity sources — GitHub (the sole source
+of review *verdicts*, over its GraphQL API), lectio (activity only, no
+verdicts), and, when configured, Linear (your own stale or stuck
+issues) — merges them by canonical artifact (a PR or a Linear issue),
+folds the merged observations into one of four lifecycle states
+(`opened` → `active` → `needs_you` → `resolved`), and, only if
+something actually needs attention, hands the material off to a Haiku
+model to triage and summarize. A quiet tick costs zero LLM calls. The
+board is written atomically so a poll never sees a half-written file.
+Every source is optional and self-degrading: a missing or misconfigured
+one — lectio included, no longer a hard boot requirement — becomes a
+`degradations` entry on that tick, never a crash.
 
 Three independent things can put a PR in `needs_you`: a standing
 `changes_requested` review, an unanswered comment, or a **failing
@@ -52,6 +57,22 @@ also carries a derived `merge_ready` boolean per PR — `true` when the
 PR is approved (or needs no review), has no failing required checks,
 and has no unresolved review threads — computed deterministically,
 never folded into a lifecycle state.
+
+Linear is a fourth activity source (optional — enabled by a `[linear]`
+table in `canonical-hours.toml`, absent means simply not registered),
+and it works differently from GitHub/lectio's windowed fetch: it runs an
+oncall-mode staleness sweep over every status for one configured
+assignee, not a time window, and flags a stale or stuck issue the same
+way a failing required check does — by setting `state_hint: "needs_you"`,
+the exact mechanism `check_failed` already uses, with no new `foldState`
+branch. The staleness reason (e.g. "P1 stuck in Triage for 9d") rides a
+new, generic `extra.reason` override so the board prints the real reason
+instead of the generic PR-shaped text — the same passthrough `merge_ready`
+already uses, not source-specific plumbing. A `completed` or `canceled`
+Linear issue resolves through the *exact* hard-terminal fold rule a
+merged or closed PR already hits: zero new fold logic, because the
+`Artifact` is now a `pr | issue` discriminated union that `mergeEvents`
+and `foldState` handle by URI alone.
 
 Two generalizations sit on top of that pipeline. First, the tick
 outcome is three-way: `all_clear` (nothing material — templated board,
@@ -121,12 +142,16 @@ transport and tenancy details.
 - `packages/core` (`@canonical-hours/core`, a pnpm workspace package) —
   the genuinely generic, proven-by-a-second-consumer pieces:
   `SnapshotSource`/`SnapshotValue` and `FetchWindow`. `agent/sources/source.ts`'s
-  `Source`/`Artifact` protocol stays local — it's still PR-shaped v1,
-  not yet proven generic beyond PR board.
-- `agent/sources/` — the `Source` protocol and the two adapters
-  (`lectio.ts`, GraphQL-based `github.ts`), plus `merge.ts` (dedupe +
-  fold logic) and the weather adapter (`weather.ts`, implements
-  `packages/core`'s `SnapshotSource`).
+  `Source`/`Artifact` protocol stays local — repo-local by design, not a
+  cross-project standard — but `Artifact` is now a `pr | issue`
+  discriminated union, proven generic by its second consumer (Linear),
+  not PR-shaped anymore.
+- `agent/sources/` — the `Source` protocol and the three adapters
+  (`lectio.ts`, GraphQL-based `github.ts`, `linear.ts`), plus `merge.ts`
+  (dedupe + fold logic) and the weather adapter (`weather.ts`, implements
+  `packages/core`'s `SnapshotSource`). `linear.ts` (`LinearSource`) runs
+  an oncall-mode staleness sweep over one assignee's Linear issues,
+  reporting staleness via `state_hint` + `extra.reason`.
 - `agent/lib/board.ts`, `agent/tools/board.ts` — the board's zod schema,
   markdown renderer, and atomic writer.
 - `agent/lib/tick.ts`, `agent/schedules/pr-board.ts`,
@@ -139,7 +164,8 @@ transport and tenancy details.
   sharing `agent/lib/{pr-ref,github-graphql}.ts`.
 - `canonical-hours.toml`, `agent/lib/config.ts` — committed non-secret
   config (tick cron, weather location, GitHub GraphQL rate-limit
-  backoff threshold) and its loader; secrets stay in `.env`.
+  backoff threshold, optional `[linear]` assignee + staleness thresholds)
+  and its loader; secrets (`LINEAR_API_KEY` included) stay in `.env`.
 - `agent/instructions.md`, `agent/skills/pr-board/SKILL.md` — the
   agent's behavioral prose (posture, tick procedure, triage rules).
 - `docs/eve-api-notes.md`, `docs/lectio-api-notes.md` — implementation

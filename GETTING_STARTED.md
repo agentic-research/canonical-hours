@@ -12,9 +12,15 @@ How to go from zero to a running canonical-hours PR board.
 - A GitHub personal access token with `repo` scope (read access to your PRs
   is enough; the two action tools below need write access to review
   threads/reviews on repos you want them to mutate).
-- Access to a running [lectio](../lectio) instance (`LECTIO_URL` +
-  `LECTIO_TOKEN`) — canonical-hours' PR board reads authored-PR *activity*
-  from lectio and review *verdicts* from GitHub, and merges the two.
+- Optionally, access to a running [lectio](../lectio) instance
+  (`LECTIO_URL` + `LECTIO_TOKEN`) — canonical-hours reads authored-PR
+  *activity* from lectio and review *verdicts* from GitHub, and merges
+  the two. lectio is optional like every other source: if it's absent or
+  misconfigured it degrades gracefully to a `degradations` entry, it is
+  no longer a hard boot requirement.
+- Optionally, a Linear API key (`LINEAR_API_KEY`) plus a `[linear]` table
+  in `canonical-hours.toml` — pulls your own stale or stuck Linear issues
+  onto the same board. Absent means the source is simply not registered.
 - An `ANTHROPIC_API_KEY` — only spent on ticks where something material
   actually changed (see [Architecture](docs/ARCHITECTURE.md) for the
   zero-LLM-call short circuit); a quiet tick costs nothing.
@@ -35,12 +41,14 @@ LECTIO_TOKEN=...
 GITHUB_TOKEN=...
 ANTHROPIC_API_KEY=...
 WEATHER_API_KEY=...   # optional — only if you want the weather snapshot
+LINEAR_API_KEY=...    # optional — only if you enable the [linear] source
 ```
 
 Secrets live in `.env`, never in the committed `canonical-hours.toml` —
 that file only holds non-secret config (tick cadence, weather location,
-GitHub GraphQL rate-limit backoff threshold). A missing file or table
-falls back to defaults; a malformed one fails the boot loudly, on purpose.
+GitHub GraphQL rate-limit backoff threshold, and the optional `[linear]`
+assignee + staleness thresholds). A missing file or table falls back to
+defaults; a malformed one fails the boot loudly, on purpose.
 
 ## Run it locally
 

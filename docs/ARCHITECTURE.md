@@ -2,10 +2,11 @@
 
 canonical-hours is a scheduled [eve.dev](https://eve.dev) agent: a
 cron tick (cadence from `canonical-hours.toml`, default every 5
-minutes) that fetches authored-PR activity from two sources, merges and
-folds it into a four-state lifecycle, attaches current-value snapshots
-(weather), and — only when the material set actually *changed* —
-invokes a Haiku model to triage and write a status board. If you're
+minutes) that fetches activity from its sources (GitHub and lectio for
+authored PRs, and — when configured — Linear for stale/stuck issues),
+merges and folds it into a four-state lifecycle, attaches current-value
+snapshots (weather), and — only when the material set actually
+*changed* — invokes a Haiku model to triage and write a status board. If you're
 trying to *run* it, start at
 [../README.md](../README.md). This document covers what actually runs,
 why it's built the way it is, and what's proven vs. still unverified.
@@ -20,6 +21,7 @@ graph TB
 
     GH["agent/sources/github.ts<br/>GithubSource"]
     LEC["agent/sources/lectio.ts<br/>LectioSource"]
+    LIN["agent/sources/linear.ts<br/>LinearSource (optional)"]
     MERGE["agent/sources/merge.ts<br/>mergeEvents() + foldState()"]
     SNAP["agent/sources/weather.ts<br/>WeatherSource (SnapshotSource)"]
 
@@ -35,9 +37,11 @@ graph TB
     CRON --> ENTRY --> TICK
     TICK --> GH
     TICK --> LEC
+    TICK --> LIN
     TICK --> SNAP
     GH --> MERGE
     LEC --> MERGE
+    LIN --> MERGE
     MERGE --> QUIET
     SNAP --> BOARDLIB
     QUIET -->|empty or unchanged| TEMPLATE --> BOARDLIB
@@ -63,10 +67,22 @@ graph TB
   becomes a degradation entry, not a crash.
 - **`agent/lib/config.ts`** — `loadConfig()`: synchronous parse +
   zod-validation of the committed, non-secret `canonical-hours.toml`
-  (`[schedule] cron`, `[weather] location`). Missing file → defaults
-  (5-minute cron, no weather source registered); malformed file →
-  throws at module load. Secrets never live here — `WEATHER_API_KEY`
-  stays in env, exactly like `GITHUB_TOKEN`.
+  (`[schedule] cron`, `[weather] location`, and the optional `[linear]`
+  table — `team`, `user_email`, and three staleness-day thresholds that
+  default to 7/30/30). Missing file → defaults (5-minute cron, no weather
+  or linear source registered); malformed file → throws at module load.
+  Secrets never live here — `WEATHER_API_KEY` and `LINEAR_API_KEY` stay
+  in env, exactly like `GITHUB_TOKEN`.
+- **`agent/sources/linear.ts`** — `LinearSource`, the optional fourth
+  data source (registered only when `[linear]` is present). Speaks
+  Linear's GraphQL API directly via `fetch` (no SDK, mirroring
+  `github.ts`), using a raw `Authorization: <key>` header (Linear's
+  convention — *not* GitHub's `Bearer`-prefixed shape). Instead of a
+  windowed fetch it runs an oncall-mode sweep over every status for one
+  configured assignee, computes staleness from `priority`/`state.type`/
+  `createdAt`/`updatedAt`, and reports it via `state_hint: "needs_you"`
+  plus `extra.reason`. A `completed`/`canceled` issue emits a hard
+  `close` observation — the same terminal signal a merged/closed PR does.
 - **`agent/sources/snapshot.ts` / `agent/sources/weather.ts`** — the
   `SnapshotSource` protocol (three members: `name`, `fetch()`,
   `freshness()`) and its first implementation. Snapshots are
@@ -86,7 +102,8 @@ graph TB
   `generated_at` itself (never trusting the model's clock) before
   writing.
 - **`agent/lib/board.ts`** — the board's zod contract
-  (`BoardSchema`/`BoardPrSchema`), the markdown renderer, and
+  (`BoardSchema`, whose `items` are the `BoardItemSchema = pr | issue`
+  discriminated union), the markdown renderer, and
   `writeBoardAtomic()` (write-to-temp, then `rename` — a poll never
   observes a half-written `board.json`).
 - **`agent/channels/board.ts`** — the read surface: `GET /board`
@@ -134,7 +151,8 @@ Three things make this work as a real abstraction rather than a
 thin wrapper around two special cases:
 
 - **The shared vocabulary lives above the adapters, not inside them.**
-  `Artifact` (a canonical URI + kind — `pr:owner/repo#123`), `Observation`
+  `Artifact` (a canonical URI + kind — a `pr | issue` discriminated
+  union: `pr:owner/repo#123` or `issue:team/team-123`), `Observation`
   (a timestamped fact with a `classification` of `hard` or `soft`), and
   the four-state `LifecycleState` enum (`opened` / `active` / `needs_you`
   / `resolved`) are all defined once, in `source.ts`, and every adapter
@@ -148,11 +166,14 @@ thin wrapper around two special cases:
   each other or their relative priority; they just each answer "what do
   you see, and how sure are you." That's what makes the earlier claim —
   "a third source later is a registry entry, not a rewrite" — actually
-  true rather than aspirational: a hypothetical third adapter (Linear,
-  say) would implement the same three methods, get added to the
-  `priority` list `agent/lib/tick-entry.ts` passes into `runTick`, and
-  everything from `mergeEvents` onward would handle it with zero
-  changes.
+  true rather than aspirational: it has since been *realized*, not just
+  asserted. `LinearSource` (`agent/sources/linear.ts`) implements the
+  same three methods, was added to the `priority` list
+  `agent/lib/tick-entry.ts` passes into `runTick` (`["lectio", "github",
+  "linear"]`), and everything from `mergeEvents` onward handles its
+  `issue:`-kind artifacts with zero changes — see
+  [The second artifact kind: Linear issues](#the-second-artifact-kind-linear-issues)
+  below for the full trace.
 - **Each adapter owns its own failure boundary.** `schema` is what makes
   "fail loudly, not silently" enforceable per-source: a provider
   response that doesn't parse throws inside that adapter's own
@@ -206,6 +227,90 @@ snapshot source is a new `agent/sources/*.ts` module plus one entry in
 `tick-entry.ts`'s `snapshotSources` array. If it ever requires editing
 `tick.ts` or the agent's instructions, the abstraction has leaked.
 
+## The second artifact kind: Linear issues
+
+Snapshots proved the *source* protocol could carry a second kind of
+input. Linear proves the *artifact* protocol could — and it's the
+sharper test of the two, because a Linear issue flows through the whole
+activity pipeline (`mergeEvents` → `foldState` → the board) that a
+snapshot deliberately skips. That it does so with **zero changes to
+`merge.ts`, `foldState`, or the fold vocabulary** is the load-bearing
+result of this section.
+
+The generalization is one type. `Artifact` was a single-shape object
+(a PR). It's now a discriminated union on `kind`:
+
+```ts
+// agent/sources/source.ts
+export const ArtifactSchema = z.discriminatedUnion("kind", [
+  PrArtifactSchema,     // kind: "pr",    repo, number, ...
+  IssueArtifactSchema,  // kind: "issue", team, identifier, ...
+]);
+```
+
+`agent/lib/board.ts`'s board entry follows the exact same split
+(`BoardItemSchema = pr | issue`, the field once called `Board.prs` now
+`Board.items`). The reason this ripples no further is a property of
+`merge.ts` that predates Linear: `mergeEvents`/`foldState` only ever
+read `artifact.uri` and pass the whole `artifact` through opaquely —
+they never branch on its shape. A new `kind` is a new URI namespace
+(`issue:` alongside `pr:`) and nothing else to them. This mirrors how
+`packages/core`'s `SnapshotSource` earned "generic": a second real
+consumer, not a speculative one, is what promotes a shape from
+"PR-specific" to "proven abstraction."
+
+**The `extra.reason` override.** `LifecycleEvent`/`MergedArtifact`
+already carried an `extra` passthrough bag (GitHub's derived
+`merge_ready` rides it — see [Action tools and merge_ready](#action-tools-and-merge_ready)).
+Linear adds one generic string to it: `extra.reason`. `toBoardItem`
+(`agent/lib/tick.ts`) reads it and, when present, uses it verbatim as
+the board entry's `reason` in place of the generic per-state text. It is
+*not* Linear-specific plumbing bolted onto `foldState` — it's the same
+"a source may hand the board a derived field the fold vocabulary doesn't
+model" mechanism `merge_ready` established, reused.
+
+### Worked example: one stale Linear issue through the pipeline
+
+Trace `ART-42`, a P1 issue sitting in Triage for 9 days, for an assignee
+configured in `[linear]`:
+
+1. **Fetch.** `LinearSource.fetch()` (oncall-mode — no window) runs the
+   `issues(filter: { assignee: { email } })` GraphQL query with a raw
+   `Authorization: <LINEAR_API_KEY>` header, and flattens each node to a
+   raw record: `{ identifier: "ART-42", priority: 1, team: "ART",
+   stateType: "triage", createdAt: "<9d ago>", ... }`.
+2. **Normalize** (`mapToLifecycleEvent`). The record parses against
+   `LinearIssueRecordSchema`. The artifact becomes
+   `{ uri: "issue:art/art-42", kind: "issue", team: "ART",
+   identifier: "ART-42", ... }` via `canonicalIssueUri` (lowercased URI
+   so a cross-source merge key would match). `stateType` is neither
+   `completed` nor `canceled`, so no hard `close` observation is emitted.
+   The staleness ladder (ported verbatim from the
+   `linear-escalation-triage` skill's oncall sweep, first match wins)
+   hits its top rule — P1/P2 in Triage past `triageStaleDays` — so the
+   event carries `state_hint: "needs_you"` and
+   `extra: { reason: "P1 stuck in Triage for 9d" }`. Its `observations`
+   array is empty: the staleness *is* the signal, and it travels on the
+   hint, not on a synthesized observation.
+3. **Merge** (`mergeEvents`). `issue:art/art-42` keys only to this one
+   source — no other source ever emits an `issue:` URI — so there is
+   nothing to dedupe or reconcile. The event passes through untouched.
+4. **Fold** (`foldState`). With no observations and no hard verdict, the
+   fold falls to the `state_hint`, exactly as GitHub's `check_failed`
+   backstop does: **`needs_you`**. `foldState` ran a single new code
+   path for this issue: none. It read `state_hint` the same way it
+   already did for PRs.
+5. **Board render** (`toBoardItem`). The item is built as the `issue`
+   variant: `itemLabel` renders `ART/ART-42` (not `repo#number`), the
+   `url` is the linear.app link, and because `extra.reason` is present it
+   overrides the generic reason text — the board line reads
+   `## [needs_you] ART/ART-42 — <title>` with
+   `Reason: P1 stuck in Triage for 9d`. Since a `needs_you` artifact
+   exists, this is a material tick and Haiku summarizes alongside any PRs
+   in the same board. Had the issue been `completed`/`canceled`, its hard
+   `close` observation would have folded it to `resolved` and dropped it
+   to the footnote line — the same terminal path a merged PR takes.
+
 ## Data flow: one tick
 
 1. **Fetch.** `runTick` calls `fetch(window)` on each configured
@@ -228,8 +333,9 @@ snapshot source is a new `agent/sources/*.ts` module plus one entry in
    source's degradation — not a silently wrong board.
 4. **Merge + fold** (`agent/sources/merge.ts`). `mergeEvents()` dedupes
    observations across sources by canonical artifact URI
-   (`pr:owner/repo#N`) under a priority list (`["lectio", "github"]`)
-   with one override: **a hard observation always replaces a soft one**,
+   (`pr:owner/repo#N` or `issue:team/team-N`) under a priority list
+   (`["lectio", "github", "linear"]`) with one override: **a hard
+   observation always replaces a soft one**,
    regardless of source priority. `foldState()` then reduces one
    artifact's full observation history to a single lifecycle state —
    see [the worked example](#worked-example-one-pr-through-the-pipeline)
@@ -246,7 +352,7 @@ snapshot source is a new `agent/sources/*.ts` module plus one entry in
    agent-fallback board — a `degradations` entry with source `"agent"`
    means the agent is retried so summaries recover after an outage) →
    **material_unchanged**: a deterministic board with fresh
-   `generated_at`/window/freshness/degradations/snapshots, `prs`
+   `generated_at`/window/freshness/degradations/snapshots, `items`
    rebuilt from this tick's own fold with only the LLM-authored
    `summary` carried over per `artifact_uri`, zero LLM. Otherwise →
    **material**, today's agent path; after the agent's board passes the
@@ -359,7 +465,11 @@ it is computed in `GithubSource.mapToLifecycleEvent` from
 list and passed through to the board via a new `extra` bag on
 `LifecycleEvent`/`MergedArtifact` — it introduces **no new
 `LifecycleState`, no new `Observation` type, and no `foldState`
-change**. It is intentionally *not* GitHub's own broader
+change**. That same `extra` bag is what Linear later reused for its
+`extra.reason` override (see
+[The second artifact kind: Linear issues](#the-second-artifact-kind-linear-issues)) —
+one passthrough mechanism, two derived board fields, still no `foldState`
+change. It is intentionally *not* GitHub's own broader
 `mergeStateStatus` (fetched for visibility only), because that field
 also folds in merge-conflict state that `watch-pr`'s three-condition
 rule does not consider.
@@ -549,13 +659,13 @@ already saw this on the board," only "this is still true."
 
 ### Why the zero-LLM-call short-circuits (all-clear and material_unchanged)
 
-Every tick invokes both sources regardless of whether anything
+Every tick invokes all its sources regardless of whether anything
 changed — that fetch/merge/fold work is cheap and deterministic. What's
 *not* cheap, and not deterministic, is an LLM call. `runTick`'s
 materiality check (step 5 above) is a plain boolean over the folded
 states: any artifact at `needs_you` or `active`? If not, the tick
 writes a templated `all_clear` (or `degraded`, if a source failed but
-nothing material surfaced anyway) board via `toBoardPr()` and returns —
+nothing material surfaced anyway) board via `toBoardItem()` and returns —
 no model invocation, no token cost, no possibility of the LLM
 hallucinating activity that didn't happen on a quiet tick. This also
 means the *majority* of ticks in a typical week (most windows on a repo
@@ -614,7 +724,7 @@ Trace a single PR, `owner/repo#123`, through one tick where Mark left a
    coincidence: a GitHub-sourced `state_hint` and a GitHub-sourced hard
    verdict are reinforcing signals from the same source, not two
    independent opinions.)
-5. **Board render.** `toBoardPr()` sets
+5. **Board render.** `toBoardItem()` sets
    `reason: "unanswered review/comment or standing changes_requested"`.
    Because the tick now has at least one `needs_you` artifact, this is a
    **material tick**: the merged data (including this PR) goes to the
