@@ -86,9 +86,12 @@ different, mutually-inconsistent trees.
 `.github/workflows/smells.yml` uses `agentic-research/mache`'s
 composite GitHub Action (the same one mache dogfoods on itself), pinned
 to a release tag rather than `@main`. It gates on
-`docs/smell-baseline.json` and uploads SARIF to the code-scanning tab.
-`.github/workflows/ci.yml` runs `task check` (typecheck + test) —
-independent of the smell gate, its own workflow.
+`docs/smell-baseline.json`. SARIF upload to the code-scanning tab is
+disabled (`upload-sarif: false`) — this repo is private and that
+upload requires GitHub Advanced Security, which isn't enabled here; it
+can be turned back on later if that changes. `.github/workflows/ci.yml`
+runs `task check` (typecheck + test) — independent of the smell gate,
+its own workflow.
 
 If the pinned mache release is bumped, re-verify the action's exact
 input names and default rule-tag selection against

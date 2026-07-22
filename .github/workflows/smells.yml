@@ -12,7 +12,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write # SARIF upload to the code-scanning tab
 
 jobs:
   smells:
@@ -20,7 +19,12 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      # upload-sarif: false — this repo is private and SARIF-to-code-scanning
+      # requires GitHub Advanced Security, which isn't enabled here (the
+      # default `true` failed with "Resource not accessible by integration").
+      # The ratchet gate itself (job summary + exit code) doesn't need it.
       - uses: agentic-research/mache/.github/actions/find-smells@dd5a30be1908ae4a9f52ec7b6c27abe5e4a8241d # v0.18.0
         with:
           mache-version: v0.18.0
           baseline: docs/smell-baseline.json
+          upload-sarif: 'false'
