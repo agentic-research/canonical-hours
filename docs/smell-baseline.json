@@ -8,11 +8,6 @@
     },
     {
       "rule_id": "cyclomatic_complexity",
-      "source_id": "agent/connections/lectio.ts",
-      "count": 1
-    },
-    {
-      "rule_id": "cyclomatic_complexity",
       "source_id": "agent/lib/board.ts",
       "count": 6
     },
