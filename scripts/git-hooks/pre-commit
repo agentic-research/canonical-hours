@@ -15,24 +15,32 @@ if ! command -v mache >/dev/null 2>&1; then
   exit 0
 fi
 
-# Scan only the tree that's actually about to be committed, not unrelated
-# unstaged/WIP changes sitting elsewhere (canonical-hours-5a1165). A whole-
-# working-tree scan let an unrelated, in-progress edit (e.g. a concurrent
-# agent dispatch touching a different file) block a clean, unrelated commit
-# whose own staged content introduced no new debt. `git stash --keep-index`
-# temporarily removes everything NOT staged, leaving the working tree as
-# exactly "what HEAD would look like after this commit" for the scan, then
-# restores the unstaged/untracked state afterward regardless of outcome.
-STASH_COUNT_BEFORE=$(git stash list | wc -l | tr -d ' ')
-git stash push --keep-index --include-untracked -q -m "pre-commit-smell-scan" || true
-STASH_COUNT_AFTER=$(git stash list | wc -l | tr -d ' ')
-
-cleanup() {
-  if [ "$STASH_COUNT_AFTER" != "$STASH_COUNT_BEFORE" ]; then
-    git stash pop -q
-  fi
-}
+# Scan only the tree that's actually about to be committed — not unrelated
+# unstaged/WIP changes sitting elsewhere in the working tree (canonical-hours-5a1165),
+# and not contaminated by a concurrent agent's uncommitted edits landing on disk
+# mid-scan (canonical-hours-4ba370). `git checkout-index` materializes exactly
+# what GIT_INDEX_FILE says will be committed into a scratch directory and we
+# scan THAT — this is immune to both failure modes an earlier `git stash
+# --keep-index` version of this hook had:
+#   1. Concurrent WIP contamination: the real working tree is never touched,
+#      so another process's unstaged edits (or its own stash operations) can
+#      never race with or corrupt this scan.
+#   2. Pathspec-restricted commits (`git commit -- <path>`): git builds a
+#      temporary index for these (GIT_INDEX_FILE points at a `next-index-*.lock`
+#      file, not `.git/index`) representing HEAD's tree with ONLY the named
+#      path(s) substituted in — `checkout-index` honors that env var exactly
+#      the way `git commit` itself does, so the scan always matches the real
+#      resulting commit tree, whether or not this is a partial commit.
+# See docs/smell-gate.md's "Baselining a new file" section for the one thing
+# this does NOT fix: a pathspec-restricted commit's tree genuinely excludes
+# any OTHER staged file not named in the pathspec — that's correct git
+# behavior, not a scan bug, and it means a new file's baseline entries must
+# be committed in the SAME commit as the file itself (never split via pathspec).
+SCRATCH="$(mktemp -d)"
+cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT INT TERM
 
+git checkout-index -a --prefix="$SCRATCH/"
+
 echo "▸ pre-commit: running task smells (staged tree only)..."
-task smells
+(cd "$SCRATCH" && task smells)

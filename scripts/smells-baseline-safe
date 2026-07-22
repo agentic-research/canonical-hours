@@ -1,0 +1,37 @@
+#!/bin/sh
+# scripts/smells-baseline-safe — regenerate docs/smell-baseline.json in
+# isolation from any concurrent, unrelated WIP elsewhere in the working tree.
+#
+# `task smells:baseline` run directly scans whatever's actually on disk,
+# including any OTHER in-progress agent's unstaged/untracked edits — a real
+# failure mode (canonical-hours-4ba370): a baseline regenerated that way can
+# silently include or exclude findings that have nothing to do with the
+# change actually being baselined, producing a baseline inconsistent with
+# what `task smells` (which correctly isolates via the pre-commit hook, or
+# this same scratch-dir technique) will check against.
+#
+# This script applies the identical isolation the pre-commit hook uses:
+# materialize exactly the STAGED tree into a scratch directory via
+# `git checkout-index`, regenerate the baseline there, then copy the result
+# back. Unstaged/untracked content anywhere in the real working tree — yours
+# or a concurrent agent's — never enters the scan.
+
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+if ! command -v mache >/dev/null 2>&1; then
+  echo "smells-baseline-safe: mache CLI not found on PATH." >&2
+  exit 1
+fi
+
+SCRATCH="$(mktemp -d)"
+cleanup() { rm -rf "$SCRATCH"; }
+trap cleanup EXIT INT TERM
+
+git checkout-index -a --prefix="$SCRATCH/"
+
+echo "▸ regenerating docs/smell-baseline.json against the staged tree only..."
+(cd "$SCRATCH" && task smells:baseline)
+
+cp "$SCRATCH/docs/smell-baseline.json" docs/smell-baseline.json
+echo "▸ wrote docs/smell-baseline.json (isolated from unstaged/untracked content elsewhere)"
