@@ -157,23 +157,31 @@ transport and tenancy details.
 <details>
 <summary><strong>Repo map</strong></summary>
 
-- `packages/core` (`@canonical-hours/core`, a pnpm workspace package) —
-  the genuinely generic, proven-by-a-second-consumer pieces:
-  `SnapshotSource`/`SnapshotValue` and `FetchWindow`. `agent/lib/sources/source.ts`'s
-  `Source`/`Artifact` protocol stays local — repo-local by design, not a
-  cross-project standard — but `Artifact` is now a `pr | issue`
-  discriminated union, proven generic by its second consumer (Linear),
-  not PR-shaped anymore.
-- `agent/lib/sources/` — the `Source` protocol and the three adapters
-  (`lectio.ts`, GraphQL-based `github.ts`, `linear.ts`), plus `merge.ts`
-  (dedupe + fold logic) and the weather adapter (`weather.ts`, implements
-  `packages/core`'s `SnapshotSource`). `linear.ts` (`LinearSource`) runs
-  an oncall-mode staleness sweep over one assignee's Linear issues,
-  reporting staleness via `state_hint` + `extra.reason`.
-- `agent/lib/board.ts`, `agent/tools/board.ts` — the board's zod schema,
-  markdown renderer, and atomic writer.
-- `agent/lib/tick.ts`, `agent/schedules/pr-board.ts`,
-  `agent/channels/{tick,board}.ts` — the scheduled tick and its wiring.
+- `packages/vespers` (`@vespers/core`, a pnpm workspace package) — the
+  portable tick/fold engine: the `Source`/`Artifact`/`Observation`/`LifecycleEvent`
+  protocol, `mergeEvents`/`foldState`, `runTick`, the `Board` schema and
+  markdown renderer, the `BoardStore` interface, and the pure parts of
+  config parsing. Zero dependency on eve or `node:fs` — proven
+  workerd-portable by a live `@cloudflare/vitest-pool-workers` test
+  (`packages/vespers/test-workerd/portability.test.ts`), not just an
+  absence-of-imports argument. `Artifact` is a `pr | issue` discriminated
+  union, proven generic by its second consumer (Linear), not PR-shaped
+  anymore. See [docs/ARCHITECTURE.md § `@vespers/core`](docs/ARCHITECTURE.md#vespers-core-the-portable-tickfold-engine).
+- `agent/lib/sources/` — the four adapters (`lectio.ts`, GraphQL-based
+  `github.ts`, `linear.ts`, `weather.ts`, the last implementing
+  `@vespers/core`'s `SnapshotSource`) — application integrations against
+  the portable protocol above, not generic machinery themselves.
+  `linear.ts` (`LinearSource`) runs an oncall-mode staleness sweep over
+  one assignee's Linear issues, reporting staleness via `state_hint` +
+  `extra.reason`.
+- `agent/lib/node-board-store.ts`, `agent/tools/board.ts` — the
+  Node/eve-side board persistence: `NodeBoardStore` (the actual
+  `node:fs` write-temp-then-rename atomicity) implementing `@vespers/core`'s
+  `BoardStore`, and the eve tool that writes through it.
+- `agent/lib/tick-entry.ts`, `agent/schedules/pr-board.ts`,
+  `agent/channels/{tick,board}.ts` — the scheduled tick's canonical-hours-side
+  wiring (constructing sources, `NodeBoardStore`, and calling
+  `@vespers/core`'s `runTick`).
 - `agent/channels/mcp.ts`, `server.json` — the MCP surface (`get_board`,
   `trigger_tick`, `resolve_addressed_review_threads`,
   `dismiss_stale_bot_reviews`) and its registry document, for cloister
@@ -183,8 +191,10 @@ transport and tenancy details.
   is the pluggable default-deny gate those two tools run through.
 - `canonical-hours.toml`, `agent/lib/config.ts` — committed non-secret
   config (tick cron, weather location, GitHub GraphQL rate-limit
-  backoff threshold, optional `[linear]` assignee + staleness thresholds)
-  and its loader; secrets (`LINEAR_API_KEY` included) stay in `.env`.
+  backoff threshold, optional `[linear]` assignee + staleness thresholds).
+  `config.ts` is a thin `readFileSync`/ENOENT-defaults wrapper around
+  `@vespers/core`'s pure `ConfigSchema`/`parseConfig`; secrets
+  (`LINEAR_API_KEY` included) stay in `.env`.
 - `agent/lib/private-sources.ts` — loads an optional fifth pluggable
   source registry from a private, external package (sensitive personal
   data that doesn't belong in this public repo — see

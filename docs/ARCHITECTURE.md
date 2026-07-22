@@ -288,7 +288,7 @@ export const ArtifactSchema = z.discriminatedUnion("kind", [
 read `artifact.uri` and pass the whole `artifact` through opaquely —
 they never branch on its shape. A new `kind` is a new URI namespace
 (`issue:` alongside `pr:`) and nothing else to them. This mirrors how
-`packages/core`'s `SnapshotSource` earned "generic": a second real
+`@vespers/core`'s `SnapshotSource` earned "generic": a second real
 consumer, not a speculative one, is what promotes a shape from
 "PR-specific" to "proven abstraction."
 
@@ -630,6 +630,42 @@ connect directly. For a real deployment, register the deployed
 the `port` variable — or the whole `remotes[0].url` — to the actual
 host. Nothing about the tools themselves changes between local and
 deployed; only the address a client dials.
+
+### `@vespers/core`: the portable tick/fold engine
+
+The mechanistic core — `Source`/`Artifact`/`Observation`/`LifecycleEvent`
+(the fold protocol), `mergeEvents`/`foldState`, `runTick`, the `Board`
+schema/renderer, and the pure parts of config parsing — lives in
+`packages/vespers/` (`@vespers/core`), a separate workspace package with
+zero dependency on eve or `node:fs`. This doesn't change the tenancy
+declaration above — canonical-hours as a whole app is still an eve/Node
+process and still correctly declares itself `external`/untrusted — but
+the engine *inside* it is now provably decoupled from that constraint.
+The one storage seam (board persistence) is an injected `BoardStore`
+interface; canonical-hours' own `NodeBoardStore`
+(`agent/lib/node-board-store.ts`) is the concrete Node/eve
+implementation, using the exact same write-temp-then-rename atomicity
+contract this repo has always used.
+
+This isn't a portability *claim* — `packages/vespers/test-workerd/portability.test.ts`
+runs `mergeEvents`/`foldState`/`computeMaterialHash`/`runTick` (including
+its `node:crypto` `createHash` call) against an in-memory `BoardStore`,
+inside a real simulated Workers runtime via `@cloudflare/vitest-pool-workers`
+— the same verification standard already used elsewhere in this repo's
+history for claims that would otherwise be unfalsifiable without a live
+check. One caveat worth being precise about: that test's own compat-mode
+setting isn't what makes `node:crypto` available there — the test pool
+itself unconditionally enables Node-compat for every test worker it
+runs, regardless of config — so the test proves `createHash` works
+inside a real simulated Workers runtime, but it does not by itself prove
+what compat flags a real future deployment's own `wrangler.toml` would
+need to set for the same to hold there.
+
+A second real consumer (cloister, or any other workerd host) importing
+`@vespers/core` directly — rather than reaching canonical-hours over
+HTTP as an external tenant, today's only integration path — is a
+deliberately separate, future, un-scoped step; this work only proves the
+package itself is portable.
 
 ## Design decisions
 
