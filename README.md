@@ -24,7 +24,10 @@ reference material — expand what you need.
 <summary><strong>Status</strong></summary>
 
 Every tick path (all-clear, degraded-fallback, material/LLM-triaged)
-and the MCP surface run end to end against `eve dev`. Runs locally
+and the MCP surface run end to end against `eve dev`. CI
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs typecheck
++ test on every push; the structural smell gate runs as its own
+workflow ([`smells.yml`](.github/workflows/smells.yml)). Runs locally
 today; a deployment target (fly.io or Vercel) is next. Full verification
 matrix: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#whats-verified-and-whats-not).
 
@@ -33,10 +36,12 @@ matrix: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#whats-verified-and-whats-not
 <details>
 <summary><strong>How it works</strong></summary>
 
-Each tick fetches from its activity sources — GitHub (the sole source
-of review *verdicts*, over its GraphQL API), lectio (activity only, no
-verdicts), and, when configured, Linear (your own stale or stuck
-issues) — merges them by canonical artifact (a PR or a Linear issue),
+Each tick fetches from its activity sources — GitHub (review
+*verdicts*, merges, and closes, over its GraphQL API), lectio (activity
+only — no way to expose a review's verdict, so it's soft-only by
+design), and, when configured, Linear (your own stale or stuck issues,
+plus a completed/canceled issue's own hard close) — merges them by
+canonical artifact (a PR or a Linear issue),
 folds the merged observations into one of four lifecycle states
 (`opened` → `active` → `needs_you` → `resolved`), and, only if
 something actually needs attention, hands the material off to a Haiku
