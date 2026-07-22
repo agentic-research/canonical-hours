@@ -208,6 +208,11 @@
     },
     {
       "rule_id": "fan_out_skew",
+      "source_id": "test/server-json.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
       "source_id": "test/sync-server-json-version.test.ts",
       "count": 1
     },

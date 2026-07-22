@@ -18,7 +18,19 @@
         "default_mode": "external",
         "trusted_tier": false,
         "shares_workerd_with": []
-      }
+      },
+      "groups": [
+        {
+          "name": "canonical-hours",
+          "advertisedPrefix": "",
+          "upstreamNames": [
+            "get_board",
+            "trigger_tick",
+            "resolve_addressed_review_threads",
+            "dismiss_stale_bot_reviews"
+          ]
+        }
+      ]
     }
   }
 }
