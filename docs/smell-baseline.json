@@ -23,6 +23,26 @@
     },
     {
       "rule_id": "dead_code",
+      "source_id": "agent/lib/sources/generated/github-types.ts",
+      "count": 2317
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/lib/sources/generated/github.ts",
+      "count": 320
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/lib/sources/generated/linear-types.ts",
+      "count": 1832
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "agent/lib/sources/generated/linear.ts",
+      "count": 162
+    },
+    {
+      "rule_id": "dead_code",
       "source_id": "agent/lib/sources/github.ts",
       "count": 5
     },
@@ -103,6 +123,16 @@
     },
     {
       "rule_id": "duplicate_code",
+      "source_id": "agent/lib/sources/generated/github.ts",
+      "count": 282
+    },
+    {
+      "rule_id": "duplicate_code",
+      "source_id": "agent/lib/sources/generated/linear.ts",
+      "count": 222
+    },
+    {
+      "rule_id": "duplicate_code",
       "source_id": "test/bot-review-dismissal.test.ts",
       "count": 1
     },
@@ -110,6 +140,26 @@
       "rule_id": "duplicate_code",
       "source_id": "test/thread-resolution.test.ts",
       "count": 1
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "agent/lib/sources/generated/github-types.ts",
+      "count": 37
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "agent/lib/sources/generated/github.ts",
+      "count": 3
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "agent/lib/sources/generated/linear-types.ts",
+      "count": 37
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "agent/lib/sources/generated/linear.ts",
+      "count": 3
     },
     {
       "rule_id": "duplicate_definitions",
@@ -158,8 +208,38 @@
     },
     {
       "rule_id": "fan_out_skew",
+      "source_id": "agent/lib/bot-review-dismissal.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "agent/lib/node-board-store.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "agent/lib/sources/generated/github.ts",
+      "count": 25
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "agent/lib/sources/generated/linear.ts",
+      "count": 41
+    },
+    {
+      "rule_id": "fan_out_skew",
       "source_id": "agent/lib/sources/github.ts",
-      "count": 3
+      "count": 4
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "agent/lib/sources/lectio.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "agent/lib/sources/linear.ts",
+      "count": 1
     },
     {
       "rule_id": "fan_out_skew",
@@ -194,7 +274,7 @@
     {
       "rule_id": "fan_out_skew",
       "source_id": "test/github-source.test.ts",
-      "count": 5
+      "count": 6
     },
     {
       "rule_id": "fan_out_skew",
@@ -204,7 +284,7 @@
     {
       "rule_id": "fan_out_skew",
       "source_id": "test/mcp-channel.test.ts",
-      "count": 14
+      "count": 15
     },
     {
       "rule_id": "fan_out_skew",
@@ -224,26 +304,36 @@
     {
       "rule_id": "fan_out_skew",
       "source_id": "test/sync-server-json-version.test.ts",
-      "count": 1
+      "count": 2
     },
     {
       "rule_id": "fan_out_skew",
       "source_id": "test/tick.test.ts",
-      "count": 16
+      "count": 17
     },
     {
       "rule_id": "god_file",
-      "source_id": "agent/lib/sources/github.ts",
+      "source_id": "agent/lib/sources/generated/github-types.ts",
       "count": 1
     },
     {
       "rule_id": "god_file",
-      "source_id": "agent/lib/sources/lectio.ts",
+      "source_id": "agent/lib/sources/generated/github.ts",
       "count": 1
     },
     {
       "rule_id": "god_file",
-      "source_id": "agent/lib/sources/linear.ts",
+      "source_id": "agent/lib/sources/generated/linear-types.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "god_file",
+      "source_id": "agent/lib/sources/generated/linear.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "long_function",
+      "source_id": "agent/lib/sources/generated/github.ts",
       "count": 1
     },
     {

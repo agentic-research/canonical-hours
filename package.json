@@ -28,7 +28,13 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@graphql-codegen/cli": "^7.2.0",
+    "@graphql-codegen/typescript": "^6.1.0",
+    "@graphql-codegen/typescript-operations": "^6.1.1",
+    "@octokit/graphql-schema": "^15.26.1",
     "@types/node": "26.1.1",
+    "graphql": "^16.14.2",
+    "graphql-codegen-typescript-validation-schema": "^0.19.0",
     "microsandbox": "^0.6.6",
     "tsx": "4.23.1",
     "typescript": "7.0.2",

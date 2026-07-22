@@ -52,6 +52,17 @@ tasks:
     cmds:
       - pnpm exec tsc --noEmit
 
+  codegen:
+    desc: "Regenerate GraphQL zod schemas (agent/lib/sources/generated/*.ts) from canonical-hours.codegen.{github,linear}.ts. Run after editing a .graphql operation file or bumping a provider schema. Includes a post-process dedup pass — see scripts/dedupe-codegen-enums.mjs's header comment for why it's needed (a confirmed, isolated upstream typescript+typescript-operations limitation, not a config mistake)."
+    deps: [deps]
+    cmds:
+      - pnpm exec graphql-codegen --config canonical-hours.codegen.github.ts
+      - pnpm exec graphql-codegen --config canonical-hours.codegen.linear.ts
+      - node scripts/dedupe-codegen-enums.mjs agent/lib/sources/generated/github-types.ts
+      - node scripts/dedupe-codegen-enums.mjs agent/lib/sources/generated/linear-types.ts
+      - node scripts/fix-codegen-enum-default-casing.mjs agent/lib/sources/generated/github.ts
+      - node scripts/fix-codegen-enum-default-casing.mjs agent/lib/sources/generated/linear.ts
+
   typecheck:vespers:
     desc: "TypeScript type check for packages/vespers under its own workers-typed tsconfig (no 'node' types) — the mechanical guardrail against an accidental Node-only import in the portable engine."
     deps: [deps]
