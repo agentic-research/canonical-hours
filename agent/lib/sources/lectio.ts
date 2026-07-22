@@ -6,8 +6,8 @@ import {
   Observation,
   Source,
   canonicalPrUri,
-} from "./source";
-import type { FetchWindow } from "@canonical-hours/core";
+} from "@vespers/core";
+import type { FetchWindow } from "@vespers/core";
 
 /**
  * One raw memory_authored_activity `prs[]` entry. Shape confirmed against

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { mergeEvents, foldState } from "../agent/lib/sources/merge";
-import { Artifact, LifecycleEvent, Observation } from "../agent/lib/sources/source";
+import { mergeEvents, foldState } from "../src/merge";
+import { Artifact, LifecycleEvent, Observation } from "../src/source";
 
 const artifact = (uri: string): Artifact => ({
   uri, kind: "pr", repo: uri.slice(3, uri.indexOf("#")),

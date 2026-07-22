@@ -1,7 +1,7 @@
 // agent/lib/sources/linear.ts
 import { z } from "zod";
-import { Artifact, LifecycleEvent, Observation, Source, canonicalIssueUri } from "./source";
-import type { FetchWindow } from "@canonical-hours/core";
+import { Artifact, LifecycleEvent, Observation, Source, canonicalIssueUri } from "@vespers/core";
+import type { FetchWindow } from "@vespers/core";
 
 export const LinearIssueRecordSchema = z.looseObject({
   identifier: z.string(),

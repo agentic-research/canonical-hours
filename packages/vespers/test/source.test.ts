@@ -7,7 +7,7 @@ import {
   ArtifactSchema,
   canonicalPrUri,
   canonicalIssueUri,
-} from "../agent/lib/sources/source";
+} from "../src/source";
 
 describe("canonicalPrUri", () => {
   it("normalizes case so cross-source merge keys match", () => {

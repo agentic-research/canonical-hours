@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { FetchWindow } from "@canonical-hours/core";
+import type { FetchWindow } from "./fetch-window";
 
 export const LIFECYCLE_STATES = ["opened", "active", "needs_you", "resolved"] as const;
 export const LifecycleStateSchema = z.enum(LIFECYCLE_STATES);
@@ -51,7 +51,7 @@ export const ObservationSchema = z.object({
   artifact_uri: z.string().min(1),
   at: z.string().min(1),           // ISO 8601
   author: z.string(),
-  // Canonical vocabulary consumed by foldState (Task 5):
+  // Canonical vocabulary consumed by foldState:
   // review_approved | review_changes_requested | review_commented | review |
   // review_comment | comment | own_reply | merge | close | check_failed |
   // enrichment | (source-specific passthrough)
@@ -81,8 +81,8 @@ export function canonicalIssueUri(team: string, identifier: string): string {
 }
 
 /**
- * The local Source protocol (spec §2.2a). Local to this repo by design —
- * not a cross-project protocol. lectio and GitHub are the two v1
+ * The local Source protocol. Local to this package by design — not a
+ * cross-project protocol. lectio and GitHub are canonical-hours' two v1
  * implementations; a third source is a registry entry, not a rewrite.
  */
 export interface Source {

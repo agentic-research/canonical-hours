@@ -48,16 +48,6 @@
     },
     {
       "rule_id": "dead_code",
-      "source_id": "agent/lib/sources/merge.ts",
-      "count": 1
-    },
-    {
-      "rule_id": "dead_code",
-      "source_id": "agent/lib/sources/source.ts",
-      "count": 8
-    },
-    {
-      "rule_id": "dead_code",
       "source_id": "agent/lib/thread-resolution.ts",
       "count": 6
     },
@@ -80,6 +70,21 @@
       "rule_id": "dead_code",
       "source_id": "packages/core/src/snapshot.ts",
       "count": 2
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "packages/vespers/src/fetch-window.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "packages/vespers/src/merge.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "packages/vespers/src/source.ts",
+      "count": 8
     },
     {
       "rule_id": "dead_code",
@@ -113,6 +118,21 @@
     },
     {
       "rule_id": "duplicate_definitions",
+      "source_id": "packages/core/src/fetch-window.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "packages/vespers/src/fetch-window.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "packages/vespers/test/merge.test.ts",
+      "count": 2
+    },
+    {
+      "rule_id": "duplicate_definitions",
       "source_id": "test/bot-review-dismissal.test.ts",
       "count": 1
     },
@@ -125,11 +145,6 @@
       "rule_id": "duplicate_definitions",
       "source_id": "test/linear-source.test.ts",
       "count": 1
-    },
-    {
-      "rule_id": "duplicate_definitions",
-      "source_id": "test/merge.test.ts",
-      "count": 2
     },
     {
       "rule_id": "duplicate_definitions",
@@ -153,11 +168,6 @@
     },
     {
       "rule_id": "fan_out_skew",
-      "source_id": "agent/lib/sources/merge.ts",
-      "count": 1
-    },
-    {
-      "rule_id": "fan_out_skew",
       "source_id": "agent/lib/sources/weather.ts",
       "count": 1
     },
@@ -169,6 +179,16 @@
     {
       "rule_id": "fan_out_skew",
       "source_id": "agent/lib/tick.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "packages/vespers/src/merge.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "packages/vespers/test/merge.test.ts",
       "count": 1
     },
     {
@@ -195,11 +215,6 @@
       "rule_id": "fan_out_skew",
       "source_id": "test/mcp-channel.test.ts",
       "count": 14
-    },
-    {
-      "rule_id": "fan_out_skew",
-      "source_id": "test/merge.test.ts",
-      "count": 1
     },
     {
       "rule_id": "fan_out_skew",

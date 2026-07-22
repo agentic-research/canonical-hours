@@ -5,8 +5,8 @@ import {
   Observation,
   Source,
   canonicalPrUri,
-} from "./source";
-import type { FetchWindow } from "@canonical-hours/core";
+} from "@vespers/core";
+import type { FetchWindow } from "@vespers/core";
 
 /** One check-run/status-context conclusion, normalized across both union members at fetch time. */
 export const CheckRollupEntrySchema = z.looseObject({

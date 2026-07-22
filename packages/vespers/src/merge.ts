@@ -18,7 +18,7 @@ const OTHER_ACTIVITY = new Set([
   "review_approved",
   "review_changes_requested",
   "review_commented",
-  "review_comment", // lectio's normalized github/review_comment kind (agent/lib/sources/lectio.ts KIND_MAP)
+  "review_comment", // lectio's normalized github/review_comment kind (canonical-hours' agent/lib/sources/lectio.ts KIND_MAP)
   "comment",
 ]);
 
@@ -51,7 +51,7 @@ export function foldState(observations: Observation[], hints: LifecycleState[]):
   // Value equality, not reference identity: lastOther and lastVerdict run different
   // predicates (OTHER_ACTIVITY membership vs. classification === "hard"), so a hard
   // review_approved and a same-instant soft duplicate of it are two distinct object
-  // instances that must still be recognized as the same logical event (test/merge.test.ts).
+  // instances that must still be recognized as the same logical event.
   const isSameObservation = lastOther && lastVerdict && lastOther.at === lastVerdict.at && lastOther.type === lastVerdict.type;
   if (unanswered && !isSameObservation) return "needs_you";
   if (hints.includes("needs_you")) return "needs_you";
@@ -73,10 +73,10 @@ function obsKey(o: Observation): string {
 }
 
 /**
- * Merge per-source lifecycle events under the priority policy (spec §2.2a):
- * dedupe by canonical artifact URI; the earlier source in `priority` wins a
- * duplicated observation, EXCEPT a hard observation always replaces a soft one.
- * Policy lives here, not in the adapters — a third source is additive.
+ * Merge per-source lifecycle events under the priority policy: dedupe by
+ * canonical artifact URI; the earlier source in `priority` wins a duplicated
+ * observation, EXCEPT a hard observation always replaces a soft one. Policy
+ * lives here, not in the adapters — a third source is additive.
  */
 export function mergeEvents(
   eventsBySource: Record<string, LifecycleEvent[]>,
