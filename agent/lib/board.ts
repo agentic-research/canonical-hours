@@ -5,7 +5,7 @@ import {
   ClassificationSchema,
   LIFECYCLE_SORT_ORDER,
   LifecycleStateSchema,
-} from "../sources/source";
+} from "./sources/source";
 import { SnapshotValueSchema } from "@canonical-hours/core";
 
 /** One activity entry inside a board item's `new_items` — renamed from the

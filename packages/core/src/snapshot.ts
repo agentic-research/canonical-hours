@@ -16,7 +16,7 @@ export const SnapshotValueSchema = z.object({
 export type SnapshotValue = z.infer<typeof SnapshotValueSchema>;
 
 /**
- * The snapshot counterpart to Source (agent/sources/source.ts). Deliberately
+ * The snapshot counterpart to Source (agent/lib/sources/source.ts). Deliberately
  * smaller: no window (current value only), no mapToLifecycleEvent (no
  * lifecycle), no per-record schema field (the adapter zod-parses its
  * provider response internally and throws loudly on drift, same failure

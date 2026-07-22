@@ -1,6 +1,6 @@
 // test/linear-source.test.ts
 import { describe, it, expect } from "vitest";
-import { LinearSource } from "../agent/sources/linear";
+import { LinearSource } from "../agent/lib/sources/linear";
 
 function fakeFetch(response: unknown): typeof fetch {
   return (async () => new Response(JSON.stringify(response), { status: 200 })) as typeof fetch;

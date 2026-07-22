@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runTick, inQuietHours, _resetTickGuardForTests, computeMaterialHash, TickDeps } from "../agent/lib/tick";
 import { readBoard, writeBoardAtomic, Board } from "../agent/lib/board";
-import { Source, LifecycleEvent, Observation } from "../agent/sources/source";
-import { MergedArtifact } from "../agent/sources/merge";
+import { Source, LifecycleEvent, Observation } from "../agent/lib/sources/source";
+import { MergedArtifact } from "../agent/lib/sources/merge";
 import type { SnapshotSource } from "@canonical-hours/core";
 
 const obs = (partial: Partial<Observation>): Observation => ({

@@ -1,4 +1,4 @@
-// agent/sources/linear.ts
+// agent/lib/sources/linear.ts
 import { z } from "zod";
 import { Artifact, LifecycleEvent, Observation, Source, canonicalIssueUri } from "./source";
 import type { FetchWindow } from "@canonical-hours/core";

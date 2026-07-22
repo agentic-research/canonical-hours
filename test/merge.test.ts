@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { mergeEvents, foldState } from "../agent/sources/merge";
-import { Artifact, LifecycleEvent, Observation } from "../agent/sources/source";
+import { mergeEvents, foldState } from "../agent/lib/sources/merge";
+import { Artifact, LifecycleEvent, Observation } from "../agent/lib/sources/source";
 
 const artifact = (uri: string): Artifact => ({
   uri, kind: "pr", repo: uri.slice(3, uri.indexOf("#")),
@@ -72,7 +72,7 @@ describe("foldState", () => {
   });
 
   it("lectio-only standalone review_comment (no accompanying review row) → needs_you, not active", () => {
-    // Regression test: agent/sources/lectio.ts normalizes github/review_comment
+    // Regression test: agent/lib/sources/lectio.ts normalizes github/review_comment
     // to "review_comment", but merge.ts's OTHER_ACTIVITY set didn't originally
     // include that string (only GitHub's own "review_commented" token and
     // "comment"). A PR whose only lectio-visible signal was an inline review

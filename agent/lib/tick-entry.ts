@@ -1,9 +1,9 @@
-import { GithubSource } from "../sources/github";
-import { LectioSource, createMcpLectioCall } from "../sources/lectio";
-import { LinearSource } from "../sources/linear";
+import { GithubSource } from "./sources/github";
+import { LectioSource, createMcpLectioCall } from "./sources/lectio";
+import { LinearSource } from "./sources/linear";
 import type { SnapshotSource } from "@canonical-hours/core";
-import type { Source } from "../sources/source";
-import { WeatherSource } from "../sources/weather";
+import type { Source } from "./sources/source";
+import { WeatherSource } from "./sources/weather";
 import { loadConfig } from "./config";
 import { runTick, TickResult } from "./tick";
 import { createInvokeAgent, InvokeAgentRuntime } from "./invoke-agent";

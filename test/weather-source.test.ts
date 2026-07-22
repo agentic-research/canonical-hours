@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { WeatherSource } from "../agent/sources/weather";
+import { WeatherSource } from "../agent/lib/sources/weather";
 
 const fx = (name: string) =>
   JSON.parse(readFileSync(`test/fixtures/weather/${name}.json`, "utf8"));

@@ -1,6 +1,6 @@
 import type { SessionAuthContext } from "eve/context";
 import type { ScheduleHandlerArgs } from "eve/schedules";
-import { MergedArtifact } from "../sources/merge";
+import { MergedArtifact } from "./sources/merge";
 import { Board } from "./board";
 import tickChannel from "../channels/tick";
 

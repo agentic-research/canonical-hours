@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { LectioSource, classifyLectioKind, normalizeLectioKind } from "../agent/sources/lectio";
+import { LectioSource, classifyLectioKind, normalizeLectioKind } from "../agent/lib/sources/lectio";
 
 const activity = JSON.parse(readFileSync("test/fixtures/lectio/authored_activity.json", "utf8"));
 const sources = JSON.parse(readFileSync("test/fixtures/lectio/list_sources.json", "utf8"));

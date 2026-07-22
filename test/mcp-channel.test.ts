@@ -18,7 +18,7 @@ import * as botReviewDismissal from "../agent/lib/bot-review-dismissal";
 import { Board, BoardSchema, renderBoardMd, writeBoardAtomic } from "../agent/lib/board";
 import { runTick, _resetTickGuardForTests } from "../agent/lib/tick";
 import type { InvokeAgentRuntime } from "../agent/lib/invoke-agent";
-import type { LifecycleEvent, Source } from "../agent/sources/source";
+import type { LifecycleEvent, Source } from "../agent/lib/sources/source";
 
 // Env the suite mutates; saved/restored around every test so mcp tests can't
 // leak BOARD_DIR/LECTIO_* state into each other (vitest isolates files per

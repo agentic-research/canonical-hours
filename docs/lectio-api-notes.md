@@ -10,7 +10,7 @@ from public docs, and not captured against *this project's specific*
 — treat the shapes below as source-verified but re-confirm end-to-end against
 the real deploy target before Task 9/11 wire this up for real.
 
-These are the facts Task 3 (`agent/sources/lectio.ts`) depends on, and that
+These are the facts Task 3 (`agent/lib/sources/lectio.ts`) depends on, and that
 Tasks 4/5/9/11 should read before touching lectio-sourced data.
 
 ## 1. `memory_authored_activity` returns a single envelope, not a bare array
@@ -29,7 +29,7 @@ Source: `crates/memory-daemon/src/tools/authored.rs`, fn `authored_activity`
 }
 ```
 
-The adapter's `fetch()` (`agent/sources/lectio.ts`) reads `result.prs` — it is
+The adapter's `fetch()` (`agent/lib/sources/lectio.ts`) reads `result.prs` — it is
 **not** a bare array of records, and it is **not** `{ records: [...] }`.
 
 ## 2. Tool args: `since_nanos` + `authors` only — no `until`
@@ -46,7 +46,7 @@ pub struct AuthoredActivityArgs {
 There is no window-end parameter at all — the query is always "since X,
 through now" server-side. Passing `until` is simply ignored (unknown fields
 are not rejected by the MCP tool's arg deserializer, but there is nothing on
-the server that reads it). `agent/sources/lectio.ts`'s `fetch()` only sends
+the server that reads it). `agent/lib/sources/lectio.ts`'s `fetch()` only sends
 `since_nanos`.
 
 `since_nanos` as a JS `number` loses precision above 2^53 (~9.007e15) —
@@ -76,13 +76,13 @@ Source: `authored.rs` lines 247-254 (`prs[]` entry construction) and
 
 - **No `url` field exists anywhere in this chain.** `gh.rs`'s PR metadata
   insert (lines 753-761) stores `title`, `state`, `merged`, `merged_at`,
-  `author`, `updated_at` — never a GitHub URL. `agent/sources/lectio.ts`
+  `author`, `updated_at` — never a GitHub URL. `agent/lib/sources/lectio.ts`
   synthesizes `Artifact.url` as `` `https://github.com/${repo}/pull/${number}` ``
   rather than reading one off the record.
 - **`state` is octocrab's `Debug`-formatted `IssueState` enum** —
   `format!("{:?}", pr.state)` (gh.rs:754) — so PascalCase (`"Open"`,
   `"Closed"`), not lowercase or a custom enum string. Task 2's `Artifact`
-  schema (`agent/sources/source.ts`) has no PR-state field at all — this
+  schema (`agent/lib/sources/source.ts`) has no PR-state field at all — this
   adapter doesn't currently forward `state` anywhere (see §6, Task 2 wasn't
   changed for this).
 - **`merged` is the literal string `"true"`/`"false"`**, not a JSON boolean —
@@ -126,7 +126,7 @@ happened" vs. "an inline comment happened."
 lectio is the soft/enrichment source; GitHub (Task 4's `sources/github.ts`)
 is the hard-verdict source. Review verdicts and merge/close events are
 classified `hard` there, from GitHub's own API (which does return verdict).
-`agent/sources/lectio.ts`'s `classifyLectioKind()` is therefore a constant
+`agent/lib/sources/lectio.ts`'s `classifyLectioKind()` is therefore a constant
 function — every lectio-sourced observation is `soft`, and
 `mapToLifecycleEvent()` never sets `state_hint` beyond `"active"` (never
 `"needs_you"` or `"resolved"` on lectio's word alone). This isn't a
@@ -161,12 +161,12 @@ Source: `crates/memory-daemon/src/tools/read.rs`, fn `list_sources` (line
 }
 ```
 
-`agent/sources/lectio.ts`'s `freshness()` reads `result.sources[].last_observed_at_iso`
+`agent/lib/sources/lectio.ts`'s `freshness()` reads `result.sources[].last_observed_at_iso`
 (max across all entries), not `result[].last_advanced_at`.
 
 ## 6. What was *not* changed
 
-Task 2's `agent/sources/source.ts` (`Artifact`, `Observation`,
+Task 2's `agent/lib/sources/source.ts` (`Artifact`, `Observation`,
 `LifecycleEvent`, `LifecycleStateSchema`) was left untouched. `state` and
 `merged` from the real lectio record are parsed (typed correctly) in
 `LectioPrRecordSchema` but not forwarded anywhere — there's no field on

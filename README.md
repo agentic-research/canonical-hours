@@ -141,12 +141,12 @@ transport and tenancy details.
 
 - `packages/core` (`@canonical-hours/core`, a pnpm workspace package) —
   the genuinely generic, proven-by-a-second-consumer pieces:
-  `SnapshotSource`/`SnapshotValue` and `FetchWindow`. `agent/sources/source.ts`'s
+  `SnapshotSource`/`SnapshotValue` and `FetchWindow`. `agent/lib/sources/source.ts`'s
   `Source`/`Artifact` protocol stays local — repo-local by design, not a
   cross-project standard — but `Artifact` is now a `pr | issue`
   discriminated union, proven generic by its second consumer (Linear),
   not PR-shaped anymore.
-- `agent/sources/` — the `Source` protocol and the three adapters
+- `agent/lib/sources/` — the `Source` protocol and the three adapters
   (`lectio.ts`, GraphQL-based `github.ts`, `linear.ts`), plus `merge.ts`
   (dedupe + fold logic) and the weather adapter (`weather.ts`, implements
   `packages/core`'s `SnapshotSource`). `linear.ts` (`LinearSource`) runs

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { GithubSource } from "../agent/sources/github";
+import { GithubSource } from "../agent/lib/sources/github";
 
 const fx = (name: string) => JSON.parse(readFileSync(`test/fixtures/github/${name}.json`, "utf8"));
 

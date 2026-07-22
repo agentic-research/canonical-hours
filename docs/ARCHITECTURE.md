@@ -19,11 +19,11 @@ graph TB
     ENTRY["agent/lib/tick-entry.ts<br/>prBoardTick()"]
     TICK["agent/lib/tick.ts<br/>runTick()"]
 
-    GH["agent/sources/github.ts<br/>GithubSource"]
-    LEC["agent/sources/lectio.ts<br/>LectioSource"]
-    LIN["agent/sources/linear.ts<br/>LinearSource (optional)"]
-    MERGE["agent/sources/merge.ts<br/>mergeEvents() + foldState()"]
-    SNAP["agent/sources/weather.ts<br/>WeatherSource (SnapshotSource)"]
+    GH["agent/lib/sources/github.ts<br/>GithubSource"]
+    LEC["agent/lib/sources/lectio.ts<br/>LectioSource"]
+    LIN["agent/lib/sources/linear.ts<br/>LinearSource (optional)"]
+    MERGE["agent/lib/sources/merge.ts<br/>mergeEvents() + foldState()"]
+    SNAP["agent/lib/sources/weather.ts<br/>WeatherSource (SnapshotSource)"]
 
     QUIET{{"material set —<br/>empty | unchanged | changed?"}}
     TEMPLATE["deterministic board,\nzero LLM calls"]
@@ -73,7 +73,7 @@ graph TB
   or linear source registered); malformed file → throws at module load.
   Secrets never live here — `WEATHER_API_KEY` and `LINEAR_API_KEY` stay
   in env, exactly like `GITHUB_TOKEN`.
-- **`agent/sources/linear.ts`** — `LinearSource`, the optional fourth
+- **`agent/lib/sources/linear.ts`** — `LinearSource`, the optional fourth
   data source (registered only when `[linear]` is present). Speaks
   Linear's GraphQL API directly via `fetch` (no SDK, mirroring
   `github.ts`), using a raw `Authorization: <key>` header (Linear's
@@ -83,7 +83,7 @@ graph TB
   `createdAt`/`updatedAt`, and reports it via `state_hint: "needs_you"`
   plus `extra.reason`. A `completed`/`canceled` issue emits a hard
   `close` observation — the same terminal signal a merged/closed PR does.
-- **`agent/sources/snapshot.ts` / `agent/sources/weather.ts`** — the
+- **`agent/lib/sources/snapshot.ts` / `agent/lib/sources/weather.ts`** — the
   `SnapshotSource` protocol (three members: `name`, `fetch()`,
   `freshness()`) and its first implementation. Snapshots are
   current-value readings with no window, no lifecycle, and no LLM
@@ -130,7 +130,7 @@ citations, not repeated here.
 Before the tick, before the merge logic, there's a design decision that
 shapes everything downstream: lectio and GitHub aren't hardcoded into
 the pipeline, they're two implementations of one small interface
-(`agent/sources/source.ts`). This was deliberate — the explicit ask
+(`agent/lib/sources/source.ts`). This was deliberate — the explicit ask
 going in was "make it pluggable," scoped narrowly: a real interface
 other adapters could implement, but *local to this repo*, not a
 cross-project standard other repos are meant to adopt (that's a
@@ -160,14 +160,14 @@ thin wrapper around two special cases:
   ever sees a lectio- or GitHub-specific field.
 - **Priority policy is a merge-time concern, not an adapter concern.**
   "GitHub is the sole hard source, lectio fills enrichment, hard beats
-  soft on conflict" is a rule `agent/sources/merge.ts` applies across
+  soft on conflict" is a rule `agent/lib/sources/merge.ts` applies across
   *whichever* sources are registered — it's not encoded in either
   adapter. `sources/lectio.ts` and `sources/github.ts` don't know about
   each other or their relative priority; they just each answer "what do
   you see, and how sure are you." That's what makes the earlier claim —
   "a third source later is a registry entry, not a rewrite" — actually
   true rather than aspirational: it has since been *realized*, not just
-  asserted. `LinearSource` (`agent/sources/linear.ts`) implements the
+  asserted. `LinearSource` (`agent/lib/sources/linear.ts`) implements the
   same three methods, was added to the `priority` list
   `agent/lib/tick-entry.ts` passes into `runTick` (`["lectio", "github",
   "linear"]`), and everything from `mergeEvents` onward handles its
@@ -204,7 +204,7 @@ only that it's honest about which it's asserting.
 
 The board now carries two kinds of sources. Activity-fold sources are
 the `Source` protocol above, untouched. **Snapshot sources**
-(`agent/sources/snapshot.ts`) are deliberately smaller — a name, a
+(`agent/lib/sources/snapshot.ts`) are deliberately smaller — a name, a
 `fetch(): Promise<SnapshotValue>`, a `freshness()` — because a
 current-value reading has no window and no lifecycle to fold. The two
 interfaces are separate on purpose: a unified discriminated union would
@@ -223,7 +223,7 @@ seems to need summarization is not a snapshot source — it's an
 activity source or out of scope.
 
 The registry invariant extends to the new kind: adding a second
-snapshot source is a new `agent/sources/*.ts` module plus one entry in
+snapshot source is a new `agent/lib/sources/*.ts` module plus one entry in
 `tick-entry.ts`'s `snapshotSources` array. If it ever requires editing
 `tick.ts` or the agent's instructions, the abstraction has leaked.
 
@@ -241,7 +241,7 @@ The generalization is one type. `Artifact` was a single-shape object
 (a PR). It's now a discriminated union on `kind`:
 
 ```ts
-// agent/sources/source.ts
+// agent/lib/sources/source.ts
 export const ArtifactSchema = z.discriminatedUnion("kind", [
   PrArtifactSchema,     // kind: "pr",    repo, number, ...
   IssueArtifactSchema,  // kind: "issue", team, identifier, ...
@@ -314,7 +314,7 @@ configured in `[linear]`:
 ## Data flow: one tick
 
 1. **Fetch.** `runTick` calls `fetch(window)` on each configured
-   `Source` (`agent/sources/source.ts`'s protocol) independently, inside
+   `Source` (`agent/lib/sources/source.ts`'s protocol) independently, inside
    its own try/catch. `window` is always `{ since: now - 72h, until:
    now }` — see [Why stateless](#why-stateless-a-72h-window-not-a-cursor)
    below. A source that throws becomes a `degradations` entry (with the
@@ -331,7 +331,7 @@ configured in `[linear]`:
    zod schema and mapped to a `LifecycleEvent` (one `Artifact` + its
    `Observation[]`). Schema drift throws loudly here, which becomes that
    source's degradation — not a silently wrong board.
-4. **Merge + fold** (`agent/sources/merge.ts`). `mergeEvents()` dedupes
+4. **Merge + fold** (`agent/lib/sources/merge.ts`). `mergeEvents()` dedupes
    observations across sources by canonical artifact URI
    (`pr:owner/repo#N` or `issue:team/team-N`) under a priority list
    (`["lectio", "github", "linear"]`) with one override: **a hard
@@ -568,11 +568,11 @@ lectio ingests a review — but `authored.rs`'s projection into
 it. There is no way, from this tool, to tell "approved" from "changes
 requested" from "commented" — only "a review happened."
 
-Consequently `agent/sources/lectio.ts`'s `classifyLectioKind()` is a
+Consequently `agent/lib/sources/lectio.ts`'s `classifyLectioKind()` is a
 constant function: every lectio-sourced observation is `soft`, and
 `mapToLifecycleEvent()` never claims a state stronger than `"active"`
 (never `needs_you`, never `resolved`) on lectio's word alone.
-`agent/sources/github.ts`, reading the same event straight from
+`agent/lib/sources/github.ts`, reading the same event straight from
 GitHub's GraphQL API (`PullRequest.reviews`, which *does* return
 `state`), classifies every observation it emits — review verdicts,
 comments, merges, closes — as `hard`. The full citation trail (Rust
@@ -581,7 +581,7 @@ line numbers, the live call's raw JSON) is in
 what," not the evidence.
 
 The practical effect, enforced in `mergeEvents()`
-(`agent/sources/merge.ts:104`): when lectio and GitHub both observe the
+(`agent/lib/sources/merge.ts:104`): when lectio and GitHub both observe the
 same event, a hard GitHub observation always overwrites a soft lectio
 one at merge time, even though lectio is earlier in the source
 priority list for *deduplication* purposes. Priority order picks a
@@ -590,7 +590,7 @@ wins the state question.
 
 ### GitHub: GraphQL, required-check visibility, and configurable backoff
 
-`agent/sources/github.ts` speaks GraphQL, not REST. `fetch()` issues a
+`agent/lib/sources/github.ts` speaks GraphQL, not REST. `fetch()` issues a
 small, bounded number of `POST https://api.github.com/graphql` requests
 per tick — 2 in the common case (the windowed search and the backstop
 search, each batching `viewer{login}`, the search itself, and every
@@ -640,7 +640,7 @@ lookback window (`agent/lib/tick.ts`, `windowHours` default 72) plus,
 for GitHub specifically, a **current-state backstop** — a second query
 (`state:open review:changes_requested`) for authored PRs the viewer
 still owes a reply to, regardless of when the review landed
-(`agent/sources/github.ts:130`, `fetch()`).
+(`agent/lib/sources/github.ts:130`, `fetch()`).
 
 The backstop exists because the window alone isn't enough: a
 `changes_requested` review from 4 days ago has aged out of any

@@ -18,7 +18,7 @@ const OTHER_ACTIVITY = new Set([
   "review_approved",
   "review_changes_requested",
   "review_commented",
-  "review_comment", // lectio's normalized github/review_comment kind (agent/sources/lectio.ts KIND_MAP)
+  "review_comment", // lectio's normalized github/review_comment kind (agent/lib/sources/lectio.ts KIND_MAP)
   "comment",
 ]);
 
