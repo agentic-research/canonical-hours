@@ -57,7 +57,7 @@ describe("workerd portability (live, not asserted)", () => {
     expect(foldState([observation], [])).toBe("needs_you");
   });
 
-  it("computeMaterialHash (node:crypto createHash under nodejs_compat) runs inside a simulated Workers runtime", () => {
+  it("computeMaterialHash (node:crypto createHash, under the pool's enforced nodejs_compat_v2) runs inside a simulated Workers runtime", () => {
     const merged = mergeEvents({ github: [event] }, ["github"]);
     const hash = computeMaterialHash(merged);
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
