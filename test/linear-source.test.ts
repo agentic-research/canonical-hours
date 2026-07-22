@@ -1,6 +1,7 @@
 // test/linear-source.test.ts
 import { describe, it, expect } from "vitest";
 import { LinearSource } from "../agent/lib/sources/linear";
+import { LinearIssuesQuerySchema } from "../agent/lib/sources/generated/linear";
 
 function fakeFetch(response: unknown): typeof fetch {
   return (async () => new Response(JSON.stringify(response), { status: 200 })) as typeof fetch;
@@ -155,5 +156,18 @@ describe("LinearSource", () => {
   it("freshness returns the current time", async () => {
     const source = new LinearSource("key", "me@example.com", staleness, fakeFetch(gqlResponse([])), now);
     expect(await source.freshness()).toBe(NOW.toISOString());
+  });
+});
+
+describe("LinearIssuesQuerySchema (codegen)", () => {
+  it("accepts a real-shaped response built from this file's own fixture helpers", () => {
+    const response = gqlResponse([issueNode({})]);
+    expect(() => LinearIssuesQuerySchema().parse(response.data)).not.toThrow();
+  });
+
+  it("rejects a response with a required field removed (drift detection)", () => {
+    const response = gqlResponse([issueNode({})]) as { data: { issues: { nodes: Array<Record<string, unknown>> } } };
+    delete response.data.issues.nodes[0].identifier;
+    expect(() => LinearIssuesQuerySchema().parse(response.data)).toThrow();
   });
 });

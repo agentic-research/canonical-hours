@@ -2,6 +2,7 @@
 import { z } from "zod";
 import { Artifact, LifecycleEvent, Observation, Source, canonicalIssueUri } from "@vespers/core";
 import type { FetchWindow } from "@vespers/core";
+import { LinearIssuesQuerySchema } from "./generated/linear";
 
 export const LinearIssueRecordSchema = z.looseObject({
   identifier: z.string(),
@@ -90,6 +91,7 @@ export class LinearSource implements Source {
     if (!res.ok) throw new Error(`linear graphql ${res.status}`);
     const json = (await res.json()) as GqlIssuesResponse;
     if (json.errors?.length) throw new Error(`linear graphql errors: ${json.errors.map((e) => e.message).join("; ")}`);
+    LinearIssuesQuerySchema().parse(json.data);
     return json;
   }
 
