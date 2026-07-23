@@ -1,22 +1,18 @@
 # lectio API notes
 
-Confirmed by reading lectio's own Rust source at
-`~/remotes/jamestexas/lectio` (a local checkout of the `lectio` daemon this
-project's `LECTIO_URL`/`LECTIO_TOKEN` point at — same protocol/software, not
-this project's own fork) plus one live call through an already-authenticated
-`mcp__lectio__*` MCP binding available in the authoring session. Not sourced
-from public docs, and not captured against *this project's specific*
-`LECTIO_URL` daemon (no reachable token for that instance at authoring time)
-— treat the shapes below as source-verified but re-confirm end-to-end against
-the real deploy target before Task 9/11 wire this up for real.
+lectio (the daemon this project's `LECTIO_URL`/`LECTIO_TOKEN` point at) is a
+separate, privately-maintained project — these notes describe the observed
+shape of its MCP tool responses, confirmed against its source and one live
+call at authoring time, not sourced from public docs. Not captured against
+*this project's specific* `LECTIO_URL` instance (no reachable token for that
+instance at authoring time) — treat the shapes below as source-verified but
+re-confirm end-to-end against the real deploy target before Task 9/11 wire
+this up for real.
 
 These are the facts Task 3 (`agent/lib/sources/lectio.ts`) depends on, and that
 Tasks 4/5/9/11 should read before touching lectio-sourced data.
 
 ## 1. `memory_authored_activity` returns a single envelope, not a bare array
-
-Source: `crates/memory-daemon/src/tools/authored.rs`, fn `authored_activity`
-(line 92), return value (lines 272-278):
 
 ```json
 {
@@ -34,20 +30,12 @@ The adapter's `fetch()` (`agent/lib/sources/lectio.ts`) reads `result.prs` — i
 
 ## 2. Tool args: `since_nanos` + `authors` only — no `until`
 
-Source: `authored.rs` lines 11-21 (`AuthoredActivityArgs`):
-
-```rust
-pub struct AuthoredActivityArgs {
-    pub since_nanos: Option<i64>,  // defaults to now - 7 days
-    pub authors: Option<Vec<String>>,
-}
-```
-
-There is no window-end parameter at all — the query is always "since X,
-through now" server-side. Passing `until` is simply ignored (unknown fields
-are not rejected by the MCP tool's arg deserializer, but there is nothing on
-the server that reads it). `agent/lib/sources/lectio.ts`'s `fetch()` only sends
-`since_nanos`.
+The tool accepts `since_nanos` (defaults server-side to now - 7 days) and an
+optional `authors` list. There is no window-end parameter at all — the query
+is always "since X, through now" server-side. Passing `until` is simply
+ignored (unknown fields are not rejected by the MCP tool's arg deserializer,
+but there is nothing on the server that reads it). `agent/lib/sources/lectio.ts`'s
+`fetch()` only sends `since_nanos`.
 
 `since_nanos` as a JS `number` loses precision above 2^53 (~9.007e15) —
 current nanosecond epoch values are ~1.78e18, well past that boundary. The
@@ -57,10 +45,6 @@ values are divided down to milliseconds before conversion, which stays well
 within safe-integer range.
 
 ## 3. One `prs[]` entry — PR metadata, no `url`, `merged` is a string
-
-Source: `authored.rs` lines 247-254 (`prs[]` entry construction) and
-`crates/memory-core/src/adapters/gh.rs` lines 753-761 (the PR metadata the
-`gh` adapter actually stores):
 
 ```json
 {
@@ -74,29 +58,24 @@ Source: `authored.rs` lines 247-254 (`prs[]` entry construction) and
 }
 ```
 
-- **No `url` field exists anywhere in this chain.** `gh.rs`'s PR metadata
-  insert (lines 753-761) stores `title`, `state`, `merged`, `merged_at`,
-  `author`, `updated_at` — never a GitHub URL. `agent/lib/sources/lectio.ts`
+- **No `url` field exists anywhere in this chain.** The underlying PR metadata
+  stores `title`, `state`, `merged`, `merged_at`, `author`, `updated_at` —
+  never a GitHub URL. `agent/lib/sources/lectio.ts`
   synthesizes `Artifact.url` as `` `https://github.com/${repo}/pull/${number}` ``
   rather than reading one off the record.
-- **`state` is octocrab's `Debug`-formatted `IssueState` enum** —
-  `format!("{:?}", pr.state)` (gh.rs:754) — so PascalCase (`"Open"`,
-  `"Closed"`), not lowercase or a custom enum string. Task 2's `Artifact`
-  schema (`agent/lib/sources/source.ts`) has no PR-state field at all — this
-  adapter doesn't currently forward `state` anywhere (see §6, Task 2 wasn't
-  changed for this).
+- **`state` is a Rust enum's `Debug`-formatted value** — PascalCase
+  (`"Open"`, `"Closed"`), not lowercase or a custom enum string. Task 2's
+  `Artifact` schema (`agent/lib/sources/source.ts`) has no PR-state field at
+  all — this adapter doesn't currently forward `state` anywhere (see §6,
+  Task 2 wasn't changed for this).
 - **`merged` is the literal string `"true"`/`"false"`**, not a JSON boolean —
-  `gh.rs:755`: `metadata.insert("merged".into(), pr.merged_at.is_some().to_string())`.
-  lectio's adapter metadata store is `HashMap<String, String>` throughout, so
-  every metadata value round-trips through this daemon as a string even when
-  the underlying Rust value was a bool. Like `state`, this adapter parses
-  `merged` in the raw schema (`LectioPrRecordSchema.merged: z.string().nullable()`)
+  lectio's adapter metadata store is a string-only map throughout, so every
+  metadata value round-trips through this daemon as a string even when the
+  underlying value was a bool. Like `state`, this adapter parses `merged` in
+  the raw schema (`LectioPrRecordSchema.merged: z.string().nullable()`)
   but doesn't currently forward it into `Artifact` — no field exists for it.
 
 ## 4. `new_items[]` — kind is an artifact kind, never a review verdict
-
-Source: `authored.rs` lines 223-229 (item projection) and `gh.rs` lines
-360-421 (`fetch_reviews_and_comments`, what actually gets stored):
 
 ```json
 {
@@ -111,12 +90,10 @@ Source: `authored.rs` lines 223-229 (item projection) and `gh.rs` lines
 
 `kind` is always either `"github/review"` or `"github/review_comment"` — the
 lectio *artifact* kind, not the review's verdict. **This is the load-bearing
-fact for classification:** `gh.rs:394` shows the `gh` adapter *does* capture
-a review's verdict when it ingests the review —
-`metadata.insert("state".into(), format!("{:?}", r.state))`, values like
-`"Approved"` / `"ChangesRequested"` / `"Commented"` (octocrab's
-`ReviewState`, PascalCase Debug format) — but `authored.rs`'s `new_items`
-projection (lines 223-229) only pulls `author`, `path`, `preview`, and
+fact for classification:** lectio's underlying `gh` adapter *does* capture a
+review's verdict when it ingests the review (values like `"Approved"` /
+`"ChangesRequested"` / `"Commented"`) — but the `new_items` projection this
+tool exposes only carries `author`, `path`, `preview`, and
 `observed_at_nanos` through. **The verdict never reaches
 `memory_authored_activity`'s response.** There is no lectio-only way to tell
 "approved" from "changes requested" from "commented" — only "a review
@@ -136,13 +113,9 @@ per the design doc; the brief's original fixture (assuming
 design.
 
 If verdict-level lectio classification is ever wanted, it requires an
-upstream lectio change (~3 lines: thread `state` through the `new_items`
-projection at `authored.rs:223-229`), not a workaround here.
+upstream lectio change, not a workaround here.
 
 ## 5. `memory_list_sources` — nested `sources[]`, not `{name, last_advanced_at}[]`
-
-Source: `crates/memory-daemon/src/tools/read.rs`, fn `list_sources` (line
-234), entry shape (lines 279-289), return (line 308):
 
 ```json
 {
@@ -180,17 +153,16 @@ raise with whoever owns that file, not something to route around here.
 ## 7. Live-call evidence (this session, different lectio instance)
 
 For confirmation that this daemon's `memory_authored_activity` output really
-is the envelope in §1 (not just Rust-source theory), a call through this
-session's own `mcp__lectio__memory_authored_activity` (no `gh_repos`
-configured on that instance, so an empty result) returned:
+matches the envelope in §1, a live call through an already-authenticated
+MCP binding (no `gh_repos` configured on that instance, so an empty result)
+returned:
 
 ```json
 {"authored_commit_count":0,"authored_commits":[],"prs":[],"prs_with_activity":0,"since_nanos_used":1783722135258797000,"total_new_items":0}
 ```
 
-confirming the top-level key set exactly matches `authored.rs:272-278`. That
-instance had no populated `prs[]` entry to capture live (no gh coverage
-configured there), so the populated example in §3/§4 is source-code-derived
+confirming the top-level key set exactly matches §1's shape. That instance
+had no populated `prs[]` entry to capture live (no gh coverage configured
+there), so the populated example in §3/§4 is derived from source inspection
 with illustrative content, not a live capture — the field *names and types*
-are verified against `authored.rs`/`gh.rs`, the example PR/review *content*
-is invented for the fixture.
+are verified, the example PR/review *content* is invented for the fixture.

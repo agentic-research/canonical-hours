@@ -696,7 +696,7 @@ constant function: every lectio-sourced observation is `soft`, and
 GitHub's GraphQL API (`PullRequest.reviews`, which *does* return
 `state`), classifies every observation it emits — review verdicts,
 comments, merges, closes — as `hard`, because it genuinely can. The
-full citation trail (Rust line numbers, the live call's raw JSON) is
+full evidence trail (response shapes, the live call's raw JSON) is
 in [lectio-api-notes.md](lectio-api-notes.md); this section is the
 "so what," not the evidence.
 
