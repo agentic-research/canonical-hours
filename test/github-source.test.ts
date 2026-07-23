@@ -145,10 +145,12 @@ describe("GithubSource", () => {
       data: {
         rateLimit: { remaining: 4989, resetAt: "2026-07-21T12:00:00Z" },
         pr0: {
-          commits: { nodes: [ { commit: { statusCheckRollup: { contexts: { nodes: [
-            { __typename: "CheckRun", name: "ci-required", conclusion: "FAILURE", isRequired: false },
-            { __typename: "CheckRun", name: "ci-optional", conclusion: "FAILURE", isRequired: false },
-          ] } } } } ] },
+          pullRequest: {
+            commits: { nodes: [ { commit: { statusCheckRollup: { contexts: { nodes: [
+              { __typename: "CheckRun", name: "ci-required", conclusion: "FAILURE", isRequired: false },
+              { __typename: "CheckRun", name: "ci-optional", conclusion: "FAILURE", isRequired: false },
+            ] } } } } ] },
+          },
         },
       },
     };
@@ -251,12 +253,12 @@ describe("GithubSource", () => {
     const conditionalResponse = {
       data: {
         rateLimit: { remaining: 4997, resetAt: "2026-07-21T12:00:00Z" },
-        pr0: { commits: { nodes: [ { commit: { statusCheckRollup: { contexts: { nodes: [
+        pr0: { pullRequest: { commits: { nodes: [ { commit: { statusCheckRollup: { contexts: { nodes: [
           { __typename: "CheckRun", name: "ci", isRequired: true },
-        ] } } } } ] } },
-        pr1: { commits: { nodes: [ { commit: { statusCheckRollup: { contexts: { nodes: [
+        ] } } } } ] } } },
+        pr1: { pullRequest: { commits: { nodes: [ { commit: { statusCheckRollup: { contexts: { nodes: [
           { __typename: "CheckRun", name: "ci", isRequired: false },
-        ] } } } } ] } },
+        ] } } } } ] } } },
       },
     };
     const sameNumberRoutes: Array<[string, unknown]> = [
@@ -394,16 +396,18 @@ describe("GithubSource", () => {
       data: {
         rateLimit: { remaining: 4998, resetAt: "2026-07-21T12:00:00Z" },
         pr0: {
-          commits: {
-            nodes: [
-              {
-                commit: {
-                  statusCheckRollup: {
-                    contexts: { nodes: [{ __typename: "CheckRun", name: "ci-required", isRequired: true }] },
+          pullRequest: {
+            commits: {
+              nodes: [
+                {
+                  commit: {
+                    statusCheckRollup: {
+                      contexts: { nodes: [{ __typename: "CheckRun", name: "ci-required", isRequired: true }] },
+                    },
                   },
                 },
-              },
-            ],
+              ],
+            },
           },
         },
       },

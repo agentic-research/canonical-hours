@@ -105,10 +105,11 @@ task tick
 ```
 
 `task tick` does not start `eve dev`, does not open an interactive chat
-session, and defaults `CANONICAL_HOURS_NO_MODEL=1` for that process. It
-writes `board/board.json` and `board/board.md` using the same tick/fold
-code as the scheduled agent. This is the path to use when you want the
-tool to run locally without any LLM provider configured.
+session, reads `.env` before constructing its sources, and defaults
+`CANONICAL_HOURS_NO_MODEL=1` for that process. It writes
+`board/board.json` and `board/board.md` using the same tick/fold code as
+the scheduled agent. This is the path to use when you want the tool to
+run locally without any LLM provider configured.
 
 To run the Eve dev server and expose the HTTP/MCP routes:
 

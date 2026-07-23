@@ -179,7 +179,27 @@ const SEARCH_QUERY = `
 interface GqlRequiredCheckResponse {
   data: { rateLimit: { remaining: number; resetAt: string } } & Record<
     string,
-    { commits: { nodes: Array<{ commit: { statusCheckRollup: { contexts: { nodes: Array<{ __typename: string; name?: string; context?: string; isRequired: boolean }> } } | null } }> } }
+    | {
+        pullRequest: {
+          commits: {
+            nodes: Array<{
+              commit: {
+                statusCheckRollup: {
+                  contexts: {
+                    nodes: Array<{
+                      __typename: string;
+                      name?: string;
+                      context?: string;
+                      isRequired: boolean;
+                    }>;
+                  };
+                } | null;
+              };
+            }>;
+          };
+        } | null;
+      }
+    | null
   >;
   errors?: Array<{ message: string }>;
 }
@@ -314,7 +334,7 @@ export class GithubSource implements Source {
       needsRequiredCheck.forEach(({ owner, repo, number }, index) => {
         const entry = withRequired.data[`pr${index}`];
         const names = new Set<string>();
-        for (const ctx of entry?.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []) {
+        for (const ctx of entry?.pullRequest?.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []) {
           if (ctx.isRequired) names.add((ctx.__typename === "CheckRun" ? ctx.name : ctx.context) as string);
         }
         requiredByPr.set(`${owner}/${repo}#${number}`, names);
