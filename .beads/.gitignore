@@ -1,46 +1,41 @@
-# Dolt database (managed by Dolt, not git)
+# Managed by rosary (rosary-05fbe0). The bead-store binary is local and must
+# not be git-tracked: binary DBs do not have safe git 3-way merge semantics.
+# Bead content is shared via the tracked, mergeable .beads/beads.jsonl.
+
+# SQLite store + sidecars (local only)
+beads.db
+beads.db-shm
+beads.db-wal
+beads.db-journal
+beads.db.migrated
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+db.sqlite
+
+# Dolt store + server runtime (legacy/local only)
 dolt/
-
-# `dolt.bak/` is the PREVIOUS store, kept on disk deliberately after the
-# dolt → sqlite backend migration. Local artifact: keep it, never commit it.
-# The `dolt/` rule above does NOT match it — gitignore patterns are literal,
-# so a backup named `dolt.bak` sails straight past it into `git add -A`.
 dolt.bak/
+dolt.bak.*/
+dolt-server.pid
+dolt-server.log
+dolt-server.lock
+dolt-server.port
+dolt-access.lock
+dolt-server.activity
 
-# Runtime files
-bd.sock
-bd.sock.startlock
-sync-state.json
-last-touched
-.exclusive-lock
-
-# Daemon runtime (lock, log, pid)
-daemon.*
-
-# Interactions log (runtime, not versioned)
-interactions.jsonl
-
-# Push state (runtime, per-machine)
-push-state.json
-
-# Lock files (various runtime locks)
-*.lock
-
-# Credential key (encryption key for federation peer auth — never commit)
+# Host-local runtime
 .beads-credential-key
-
-# Local version tracking (prevents upgrade notification spam after git ops)
 .local_version
-
-# Worktree redirect file (contains relative path to main repo's .beads/)
-# Must not be committed as paths would be wrong in other clones
+last-touched
+backup/
+interactions.jsonl
 redirect
-
-# Sync state (local-only, per-machine)
-# These files are machine-specific and should not be shared across clones
 .sync.lock
 export-state/
 export-state.json
+sync-state.json
 
 # Ephemeral store (SQLite - wisps/molecules, intentionally not versioned)
 ephemeral.sqlite3
@@ -48,31 +43,8 @@ ephemeral.sqlite3-journal
 ephemeral.sqlite3-wal
 ephemeral.sqlite3-shm
 
-# Dolt server management (auto-started by bd)
-dolt-server.pid
-dolt-server.log
-dolt-server.lock
-dolt-server.port
-dolt-server.activity
-
-# Corrupt backup directories (created by bd doctor --fix recovery)
+# Daemon state, lockfiles, quarantined backups, and local environment
+daemon.*
+*.lock
 *.corrupt.backup/
-
-# Backup data (auto-exported JSONL, local-only)
-backup/
-
-# Per-project environment file (Dolt connection config, GH#2520)
 .env
-
-# Legacy files (from pre-Dolt versions)
-*.db
-*.db?*
-*.db-journal
-*.db-wal
-*.db-shm
-db.sqlite
-bd.db
-# NOTE: Do NOT add negation patterns here.
-# They would override fork protection in .git/info/exclude.
-# Config files (metadata.json, config.yaml) are tracked by git by default
-# since no pattern above ignores them.
