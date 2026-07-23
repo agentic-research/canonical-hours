@@ -46,8 +46,11 @@ canonical artifact (a PR or a Linear issue),
 folds the merged observations into one of four lifecycle states
 (`opened` → `active` → `needs_you` → `resolved`), and, only if
 something actually needs attention, hands the material off to a Haiku
-model to triage and summarize. A quiet tick costs zero LLM calls. The
-board is written atomically so a poll never sees a half-written file.
+model to triage and summarize. A quiet tick costs zero LLM calls; a
+local run with no `ANTHROPIC_API_KEY` costs zero too, by intentionally
+skipping the model call and letting Vespers Core write the deterministic
+degraded fallback board. The board is written atomically so a poll never
+sees a half-written file.
 Every source is optional and self-degrading: a missing or misconfigured
 one — lectio included, no longer a hard boot requirement — becomes a
 `degradations` entry on that tick, never a crash.
@@ -235,7 +238,7 @@ workflow; call the matching `task` target instead. Full walkthrough in
 
 ```sh
 task setup        # fresh clone: Corepack/pnpm, .env template, deps, local hooks
-task dev          # eve dev — run the agent locally
+task dev          # eve dev — run locally; schedules work without a model key
 task build        # eve build
 task test         # vitest run
 task test:package # build vespers-core and import its published ESM entrypoint

@@ -33,6 +33,20 @@ export interface InvokeAgentRuntime {
   appAuth: SessionAuthContext;
 }
 
+function enabled(value: string | undefined): boolean {
+  return value !== undefined && /^(1|true|yes|on)$/i.test(value.trim());
+}
+
+function modelSkipReason(): string | undefined {
+  if (enabled(process.env.CANONICAL_HOURS_NO_MODEL)) {
+    return "CANONICAL_HOURS_NO_MODEL is set";
+  }
+  if (!process.env.ANTHROPIC_API_KEY?.trim()) {
+    return "ANTHROPIC_API_KEY is unset";
+  }
+  return undefined;
+}
+
 /**
  * Builds a `TickDeps["invokeAgent"]` closure from a schedule handler's
  * runtime args. Hands the material tick input to the pr-board agent
@@ -45,6 +59,13 @@ export interface InvokeAgentRuntime {
 export function createInvokeAgent(
   runtime: InvokeAgentRuntime,
 ): (input: AgentTickInput) => Promise<void> {
+  const skipReason = modelSkipReason();
+  if (skipReason) {
+    return async () => {
+      console.warn(`[pr-board] skipping model invocation: ${skipReason}`);
+    };
+  }
+
   return async (input) => {
     await runtime.receive(tickChannel, {
       message: agentPrompt(input),

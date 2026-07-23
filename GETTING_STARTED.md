@@ -43,9 +43,14 @@ How to go from zero to a running canonical-hours PR board.
   (`CANONICAL_HOURS_PRIVATE_SOURCES_PATH` pointing at its built
   `dist/index.js`) for source implementations that don't belong in this
   public repo. Absent means the feature is simply off.
-- An `ANTHROPIC_API_KEY` — only spent on ticks where something material
-  actually changed (see [Architecture](docs/ARCHITECTURE.md) for the
-  zero-LLM-call short circuit); a quiet tick costs nothing.
+- Optionally, an `ANTHROPIC_API_KEY` — only spent on ticks where
+  something material actually changed (see
+  [Architecture](docs/ARCHITECTURE.md) for the zero-LLM-call short
+  circuit); a quiet tick costs nothing. If the key is absent,
+  canonical-hours still runs locally and writes deterministic degraded
+  fallback boards for material ticks, without summaries. Set
+  `CANONICAL_HOURS_NO_MODEL=1` to force that mode even when your shell
+  happens to have a key.
 
 ## Clone and configure
 
@@ -72,7 +77,8 @@ Fill in `.env` after setup:
 LECTIO_URL=...
 LECTIO_TOKEN=...
 GITHUB_TOKEN=...
-ANTHROPIC_API_KEY=...
+ANTHROPIC_API_KEY=...  # optional — enables Haiku summaries on material ticks
+CANONICAL_HOURS_NO_MODEL=1  # optional — force deterministic no-model local mode
 WEATHER_API_KEY=...    # optional — only if you want the weather snapshot
 LINEAR_API_KEY=...     # optional — only if you enable the [linear] source
 MCP_ACTION_TOKEN=...   # optional — static-secret gate; see the mutating-tools note above
@@ -105,9 +111,17 @@ curl http://127.0.0.1:2000/board/md    # human-readable
 ```
 
 You should see either an all-clear board (nothing needs you) or a
-material one (something does, and Haiku's already summarized it) — either
-way, `board.json`/`board.md` land in the `board/` directory, written
-atomically so a poll never sees a half-written file.
+material one. With `ANTHROPIC_API_KEY` set, material ticks ask Haiku for
+summaries. Without it, or with `CANONICAL_HOURS_NO_MODEL=1`, material
+ticks skip the agent turn and write a deterministic degraded fallback
+board instead; you still get the concrete artifacts and observations,
+just not LLM prose summaries. Either way, `board.json`/`board.md` land
+in the `board/` directory, written atomically so a poll never sees a
+half-written file.
+
+The Eve dev prompt itself is still an LLM chat surface. In no-model
+mode, use the schedule and board routes above; typing messages at the
+prompt will still ask Eve for a model provider key.
 
 ## Wire it into an MCP client (optional)
 

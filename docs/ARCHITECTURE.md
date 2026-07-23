@@ -6,8 +6,10 @@ minutes) that fetches activity from its sources (GitHub and lectio for
 authored PRs, and — when configured — Linear for stale/stuck issues),
 merges and folds it into a four-state lifecycle, attaches current-value
 snapshots (weather), and — only when the material set actually
-*changed* — invokes a Haiku model to triage and write a status board. If you're
-trying to *run* it, start at
+*changed* and a model key is configured — invokes a Haiku model to
+triage and write a summarized status board. Without a model key it
+still writes the deterministic degraded fallback board, which is the
+local development path. If you're trying to *run* it, start at
 [../README.md](../README.md). This document covers what actually runs,
 why it's built the way it is, and what's proven vs. still unverified.
 
