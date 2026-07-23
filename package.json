@@ -65,5 +65,12 @@
   },
   "overrides": {
     "ai": "^7.0.26"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "workerd"
+    ]
   }
 }

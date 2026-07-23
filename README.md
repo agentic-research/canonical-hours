@@ -234,14 +234,16 @@ workflow; call the matching `task` target instead. Full walkthrough in
 [GETTING_STARTED.md](GETTING_STARTED.md).
 
 ```sh
+task setup        # fresh clone: Corepack/pnpm, .env template, deps, local hooks
 task dev          # eve dev — run the agent locally
 task build        # eve build
 task test         # vitest run
+task test:package # build vespers-core and import its published ESM entrypoint
 task typecheck    # tsc --noEmit
 task codegen      # regenerate agent/lib/sources/generated/*.ts after editing graphql/sources/*.graphql
-task check        # typecheck + test — the fast inner-loop gate
+task check        # typecheck + package smoke + test — run before commit/push
 task smells       # structural smell gate, ratcheted against docs/smell-baseline.json
-task install-hooks  # once per clone: wires task smells into .git/hooks/pre-commit
+task install-hooks  # refresh just the local pre-commit hook wiring
 task --list       # see everything, including deps/watch/smells:baseline
 ```
 

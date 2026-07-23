@@ -4,8 +4,9 @@ How to go from zero to a running canonical-hours PR board.
 
 ## Prerequisites
 
-- Node + [pnpm](https://pnpm.io) — the Taskfile installs deps for you, but
-  both need to already be on `PATH`.
+- Node 22+ — `task setup` uses [pnpm](https://pnpm.io) through Corepack
+  when available, or an existing `pnpm` on `PATH`. The version is pinned
+  in `package.json`.
 - [Task](https://taskfile.dev) (`brew install go-task`) — every command in
   this doc runs through it, the same convention as
   [cloister](../cloister), [rosary](../rosary), and [mache](../mache).
@@ -51,10 +52,21 @@ How to go from zero to a running canonical-hours PR board.
 ```sh
 git clone https://github.com/agentic-research/canonical-hours.git
 cd canonical-hours
-cp .env.example .env
+task setup
 ```
 
-Fill in `.env`:
+`task setup` prepares pnpm, creates `.env` from `.env.example` if it
+does not already exist, installs frozen dependencies, and wires local git
+hooks when no existing hook manager is already present. It never
+overwrites an existing `.env`.
+
+The repo also commits pnpm's build-script allowlist for the native/dev
+toolchain packages that need postinstall scripts: `esbuild`, `workerd`,
+and `sharp` (`sharp` comes through Miniflare/Nitro/Eve image tooling, not
+canonical-hours application code). You should not need to run
+`pnpm approve-builds` on a fresh clone.
+
+Fill in `.env` after setup:
 
 ```
 LECTIO_URL=...
@@ -80,7 +92,7 @@ defaults; a malformed one fails the boot loudly, on purpose.
 ## Run it locally
 
 ```sh
-task dev    # eve dev — installs deps first, then runs the agent
+task dev    # eve dev — ensures deps are installed, then runs the agent
 ```
 
 `eve dev` never fires the schedule's cron automatically — trigger a tick
@@ -116,15 +128,19 @@ loop on the client side.
 ```sh
 task test           # vitest run
 task typecheck       # tsc --noEmit
+task test:package    # build @agentic-research/vespers-core and import its ESM entrypoint
 task codegen         # regenerate agent/lib/sources/generated/*.ts after editing graphql/sources/*.graphql
-task check           # typecheck + test — the fast inner-loop gate
+task check           # typecheck + package smoke + test — run before commit/push
 task smells          # structural smell gate, ratcheted against docs/smell-baseline.json
-task install-hooks   # once per clone: wires task smells into .git/hooks/pre-commit
+task setup           # once per clone: env template + deps + local hooks
+task install-hooks   # just the hook wiring piece, if you need to refresh it
 task --list          # see everything, including build/watch/smells:baseline
 ```
 
-Run `task install-hooks` once after cloning — it's what makes the smell
-gate actually block a bad commit locally instead of only running in CI.
+`task setup` runs `task install-hooks` for you when it can. If an
+existing non-symlink hook is already installed, setup leaves it alone and
+continues; run `task install-hooks` directly after reconciling hooks if
+you specifically need to refresh the smell-gate hook.
 
 ## Where to go next
 

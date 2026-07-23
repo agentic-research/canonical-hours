@@ -22,6 +22,34 @@ tasks:
     generates:
       - node_modules/.modules.yaml
 
+  setup:
+    desc: "Fresh-clone bootstrap: prepare pnpm, create .env if missing, install deps, and wire local hooks when possible."
+    cmds:
+      - |
+        if command -v corepack >/dev/null 2>&1; then
+          corepack enable
+          echo "▸ enabled pnpm via Corepack"
+        elif command -v pnpm >/dev/null 2>&1; then
+          echo "▸ using existing pnpm at $(command -v pnpm)"
+        else
+          echo "▸ pnpm is not on PATH and corepack is unavailable. Install pnpm or use a Node build that includes Corepack."
+          exit 1
+        fi
+      - |
+        if [ ! -f .env ]; then
+          cp .env.example .env
+          echo "▸ created .env from .env.example"
+        else
+          echo "▸ .env already exists; leaving it untouched"
+        fi
+      - task deps
+      - |
+        if task install-hooks; then
+          echo "▸ local hooks ready"
+        else
+          echo "▸ hook wiring skipped because an existing non-symlink hook is present; setup can continue"
+        fi
+
   dev:
     desc: Start the eve dev server (schedules never fire on cron in dev — trigger manually, see README)
     deps: [deps]
@@ -108,7 +136,7 @@ tasks:
       - task test
 
   ci:
-    desc: "The exact gate CI runs (.github/workflows/ci.yml): typecheck + test. The smell gate runs as its own workflow (.github/workflows/smells.yml, via mache's composite action) rather than through this task — see docs/smell-gate.md."
+    desc: "The exact gate CI runs (.github/workflows/ci.yml): typecheck + package smoke + test. The smell gate runs as its own workflow (.github/workflows/smells.yml, via mache's composite action) rather than through this task — see docs/smell-gate.md."
     cmds:
       - task: check
 
