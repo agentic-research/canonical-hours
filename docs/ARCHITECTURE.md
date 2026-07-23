@@ -62,6 +62,14 @@ graph TB
   from `loadConfig()` at module load). It does nothing but call
   `waitUntil(prBoardTick(...))`, forwarding the schedule handler's own
   `receive`/`appAuth`.
+- **`scripts/run-tick.ts` / `task tick`** — the one-shot local entry
+  point for the same tick/fold path. It forces
+  `CANONICAL_HOURS_NO_MODEL=1` by default and supplies a runtime that
+  refuses model invocation, so a fresh clone can write `board/board.json`
+  and `board/board.md` without starting an Eve chat session or
+  configuring a model provider key. `task brief:claude` and
+  `task brief:codex` layer optional CLI-authenticated prose briefs on top
+  of that generated markdown; they do not change the tick contract.
 - **`agent/lib/tick.ts`** (`runTick`) — the deterministic core: fetch
   from every source independently, merge, fold, decide whether the tick
   is material, and either write a templated board directly or hand off

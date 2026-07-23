@@ -97,6 +97,21 @@ defaults; a malformed one fails the boot loudly, on purpose.
 
 ## Run it locally
 
+For the simplest local smoke test, run one tick directly from the
+Taskfile:
+
+```sh
+task tick
+```
+
+`task tick` does not start `eve dev`, does not open an interactive chat
+session, and defaults `CANONICAL_HOURS_NO_MODEL=1` for that process. It
+writes `board/board.json` and `board/board.md` using the same tick/fold
+code as the scheduled agent. This is the path to use when you want the
+tool to run locally without any LLM provider configured.
+
+To run the Eve dev server and expose the HTTP/MCP routes:
+
 ```sh
 task dev    # eve dev — ensures deps are installed, then runs the agent
 ```
@@ -120,8 +135,21 @@ in the `board/` directory, written atomically so a poll never sees a
 half-written file.
 
 The Eve dev prompt itself is still an LLM chat surface. In no-model
-mode, use the schedule and board routes above; typing messages at the
-prompt will still ask Eve for a model provider key.
+mode, use `task tick` or the schedule and board routes above; typing
+messages at the prompt will still ask Eve for a model provider key.
+
+If you want a Claude Code or Codex-powered prose pass without wiring an
+API key into canonical-hours, use one of the optional wrapper tasks:
+
+```sh
+task brief:claude
+task brief:codex
+```
+
+Both wrappers run `task tick` first, then hand `board/board.md` to the
+respective CLI using that CLI's own auth/subscription. The canonical
+tick remains deterministic; these wrappers are separate post-processing
+briefs over the generated board, not hidden model calls inside the tick.
 
 ## Wire it into an MCP client (optional)
 

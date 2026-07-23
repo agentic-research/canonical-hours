@@ -56,6 +56,41 @@ tasks:
     cmds:
       - pnpm exec eve dev
 
+  tick:
+    desc: "Run one canonical-hours tick from the shell, without starting Eve dev or requiring a model key."
+    deps: [deps]
+    cmds:
+      - pnpm exec tsx scripts/run-tick.ts
+
+  brief:claude:
+    desc: "Run one no-model tick, then ask Claude Code CLI to brief board.md using your Claude Code auth/subscription."
+    deps: [deps]
+    cmds:
+      - task tick
+      - |
+        board="${BOARD_DIR:-board}/board.md"
+        if ! command -v claude >/dev/null 2>&1; then
+          echo "▸ claude CLI not found on PATH"
+          exit 1
+        fi
+        claude -p "$(printf 'Read this canonical-hours board and give a concise operational brief: what needs attention, what is degraded, and what should happen next.\n\n'; cat "$board")"
+
+  brief:codex:
+    desc: "Run one no-model tick, then ask Codex CLI to brief board.md using your Codex auth/subscription."
+    deps: [deps]
+    cmds:
+      - task tick
+      - |
+        board="${BOARD_DIR:-board}/board.md"
+        if ! command -v codex >/dev/null 2>&1; then
+          echo "▸ codex CLI not found on PATH"
+          exit 1
+        fi
+        {
+          printf 'Read this canonical-hours board and give a concise operational brief: what needs attention, what is degraded, and what should happen next.\n\n'
+          cat "$board"
+        } | codex exec -C . -
+
   build:
     desc: Build for deployment (eve build)
     deps: [deps]

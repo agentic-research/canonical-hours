@@ -25,7 +25,9 @@ reference material — expand what you need.
 <summary><strong>Status</strong></summary>
 
 Every tick path (all-clear, degraded-fallback, material/LLM-triaged)
-and the MCP surface run end to end against `eve dev`. CI
+and the MCP surface run end to end against `eve dev`; the deterministic
+no-model path also runs directly as `task tick`, without starting an Eve
+chat session. CI
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs typecheck
 + test on every push; the structural smell gate runs as its own
 workflow ([`smells.yml`](.github/workflows/smells.yml)). Runs locally
@@ -238,6 +240,9 @@ workflow; call the matching `task` target instead. Full walkthrough in
 
 ```sh
 task setup        # fresh clone: Corepack/pnpm, .env template, deps, local hooks
+task tick         # run one tick directly; no Eve dev server or model key required
+task brief:claude # task tick + Claude Code CLI brief over board/board.md
+task brief:codex  # task tick + Codex CLI brief over board/board.md
 task dev          # eve dev — run locally; schedules work without a model key
 task build        # eve build
 task test         # vitest run
