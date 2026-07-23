@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@agentic-research/dpop':
+        specifier: ^0.2.0
+        version: 0.2.0
       '@ai-sdk/anthropic':
         specifier: ^4.0.16
         version: 4.0.16(zod@4.4.3)
@@ -87,6 +90,9 @@ importers:
         version: 4.113.0(@cloudflare/workers-types@5.20260722.1)
 
 packages:
+
+  '@agentic-research/dpop@0.2.0':
+    resolution: {integrity: sha512-emzNIdRkJZMDpJQGMx4sz5r0R1PB6uwiJ1f+ekmQaaSAplgq505PXrsL46L+WpsKylv/qTpgwi4BlRYJWTnLLQ==, tarball: https://npm.pkg.github.com/download/@agentic-research/dpop/0.2.0/173cf742729e48af9b5fb8e3030693475b1a57ad}
 
   '@ai-sdk/anthropic@4.0.16':
     resolution: {integrity: sha512-vyH4D6Auih5H2xvVzzh2ep5pbdWiaV7JDC+jHUE7zZJ5Kyv0TteLav4DrOgHzRuyv8ptfUSqFF6Y8//f/Ec0fQ==}
@@ -3110,6 +3116,8 @@ packages:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
 snapshots:
+
+  '@agentic-research/dpop@0.2.0': {}
 
   '@ai-sdk/anthropic@4.0.16(zod@4.4.3)':
     dependencies:

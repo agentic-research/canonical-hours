@@ -18,11 +18,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agentic-research/dpop": "^0.2.0",
     "@ai-sdk/anthropic": "^4.0.16",
-    "@vespers/core": "workspace:*",
     "@iarna/toml": "^2.2.5",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@vercel/connect": "0.4.0",
+    "@vespers/core": "workspace:*",
     "ai": "^7.0.26",
     "eve": "^0.27.0",
     "zod": "^4.4.3"

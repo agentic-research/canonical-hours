@@ -10,6 +10,9 @@ on:
 
 permissions:
   contents: read
+  # @agentic-research/dpop is on GitHub Packages, which requires auth to
+  # install even for PUBLIC packages — 401 anonymous (notme-18450e).
+  packages: read
 
 jobs:
   check:
@@ -46,5 +49,13 @@ jobs:
       # install twice on the happy path.
       - name: Install dependencies (retried — see comment above)
         run: pnpm install --frozen-lockfile || pnpm install --frozen-lockfile
+        env:
+          # Consumed by .npmrc's //npm.pkg.github.com/:_authToken line.
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - run: task ci
+        env:
+          # `task ci` chains a nested deps task. It is a no-op once
+          # node_modules is warm, but if it ever does install it hits the
+          # GitHub Packages registry too and would 401 without this.
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

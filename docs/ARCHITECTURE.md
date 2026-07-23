@@ -490,7 +490,7 @@ matching prefix) — simple, but a leaked token is indefinite access with
 nothing to revoke short of rotating the secret.
 
 `notmeDpopGate()` verifies a [notme](https://github.com/agentic-research/notme)-issued
-DPoP-bound access token (RFC 9449) via `agent/lib/vendor/notme-dpop.ts`
+DPoP-bound access token (RFC 9449) via the `@agentic-research/dpop` SDK
 (vendored from notme's own `gen/ts/dpop.ts` — not published as a
 package, no dependency mechanism to point at; see that file's header for
 provenance). `verifyDPoPToken` itself now checks audience, issuer, and
