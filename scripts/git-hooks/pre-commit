@@ -1,0 +1,46 @@
+#!/bin/sh
+# scripts/git-hooks/pre-commit — structural smell gate (docs/smell-gate.md).
+#
+# Installed into .git/hooks/pre-commit by `task install-hooks`.
+#
+# Blocks a commit only on NEW smell findings beyond docs/smell-baseline.json
+# (the "no new debt" ratchet) — findings already in the baseline never fail.
+# To bypass once (e.g. emergency commit), use: git commit --no-verify
+
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+if ! command -v mache >/dev/null 2>&1; then
+  echo "pre-commit: mache CLI not found on PATH — skipping smell gate (install from agentic-research/mache to enable)." >&2
+  exit 0
+fi
+
+# Scan only the tree that's actually about to be committed — not unrelated
+# unstaged/WIP changes sitting elsewhere in the working tree (canonical-hours-5a1165),
+# and not contaminated by a concurrent agent's uncommitted edits landing on disk
+# mid-scan (canonical-hours-4ba370). `git checkout-index` materializes exactly
+# what GIT_INDEX_FILE says will be committed into a scratch directory and we
+# scan THAT — this is immune to both failure modes an earlier `git stash
+# --keep-index` version of this hook had:
+#   1. Concurrent WIP contamination: the real working tree is never touched,
+#      so another process's unstaged edits (or its own stash operations) can
+#      never race with or corrupt this scan.
+#   2. Pathspec-restricted commits (`git commit -- <path>`): git builds a
+#      temporary index for these (GIT_INDEX_FILE points at a `next-index-*.lock`
+#      file, not `.git/index`) representing HEAD's tree with ONLY the named
+#      path(s) substituted in — `checkout-index` honors that env var exactly
+#      the way `git commit` itself does, so the scan always matches the real
+#      resulting commit tree, whether or not this is a partial commit.
+# See docs/smell-gate.md's "Baselining a new file" section for the one thing
+# this does NOT fix: a pathspec-restricted commit's tree genuinely excludes
+# any OTHER staged file not named in the pathspec — that's correct git
+# behavior, not a scan bug, and it means a new file's baseline entries must
+# be committed in the SAME commit as the file itself (never split via pathspec).
+SCRATCH="$(mktemp -d)"
+cleanup() { rm -rf "$SCRATCH"; }
+trap cleanup EXIT INT TERM
+
+git checkout-index -a --prefix="$SCRATCH/"
+
+echo "▸ pre-commit: running task smells (staged tree only)..."
+(cd "$SCRATCH" && task smells)

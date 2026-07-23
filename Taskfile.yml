@@ -1,0 +1,128 @@
+version: '3'
+
+# Golden path: local dev and (whenever a workflow is added) CI both use
+# these tasks. This repo has no CI workflow yet (see docs/ARCHITECTURE.md,
+# "What's verified, and what's not") — this Taskfile exists so that when
+# CI lands it wires straight into these same targets rather than
+# reinventing them in YAML, matching the convention in cloister/rosary/mache.
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  deps:
+    desc: Install dependencies from pnpm-lock.yaml (frozen)
+    cmds:
+      - pnpm install --frozen-lockfile
+    sources:
+      - package.json
+      - pnpm-lock.yaml
+    generates:
+      - node_modules/.modules.yaml
+
+  dev:
+    desc: Start the eve dev server (schedules never fire on cron in dev — trigger manually, see README)
+    deps: [deps]
+    cmds:
+      - pnpm exec eve dev
+
+  build:
+    desc: Build for deployment (eve build)
+    deps: [deps]
+    cmds:
+      - pnpm exec eve build
+
+  test:
+    desc: Run the test suite (vitest)
+    deps: [deps]
+    cmds:
+      - pnpm exec vitest run
+
+  test:watch:
+    desc: Watch mode
+    deps: [deps]
+    cmds:
+      - pnpm exec vitest
+
+  typecheck:
+    desc: TypeScript type check (no emit)
+    deps: [deps]
+    cmds:
+      - pnpm exec tsc --noEmit
+
+  codegen:
+    desc: "Regenerate GraphQL zod schemas (agent/lib/sources/generated/*.ts) from canonical-hours.codegen.{github,linear}.ts. Run after editing graphql/sources/*.graphql or bumping a provider schema. Includes a post-process dedup pass — see scripts/dedupe-codegen-enums.mjs's header comment for why it's needed (a confirmed, isolated upstream typescript+typescript-operations limitation, not a config mistake)."
+    deps: [deps]
+    cmds:
+      - pnpm exec graphql-codegen --config canonical-hours.codegen.github.ts
+      - pnpm exec graphql-codegen --config canonical-hours.codegen.linear.ts
+      - node scripts/dedupe-codegen-enums.mjs agent/lib/sources/generated/github-types.ts
+      - node scripts/dedupe-codegen-enums.mjs agent/lib/sources/generated/linear-types.ts
+      - node scripts/fix-codegen-enum-default-casing.mjs agent/lib/sources/generated/github.ts
+      - node scripts/fix-codegen-enum-default-casing.mjs agent/lib/sources/generated/linear.ts
+
+  typecheck:vespers:
+    desc: "TypeScript type check for packages/vespers under its own workers-typed tsconfig (no 'node' types) — the mechanical guardrail against an accidental Node-only import in the portable engine."
+    deps: [deps]
+    cmds:
+      - pnpm exec tsc --noEmit -p packages/vespers/tsconfig.json
+
+  test:workerd:
+    desc: "Live @cloudflare/vitest-pool-workers smoke test proving @agentic-research/vespers-core runs under a simulated workerd runtime (canonical-hours-35893f) — not part of task check/ci yet: it spins up Miniflare and is slower/heavier than the rest of the suite. Run explicitly when touching packages/vespers."
+    dir: packages/vespers
+    cmds:
+      - pnpm exec vitest run --config vitest.workerd.config.mts
+
+  smells:
+    desc: "Structural smell gate — fail only on findings beyond docs/smell-baseline.json (see docs/smell-gate.md). --tags=gate matches mache's own ratchet convention (the composite GitHub Action hardcodes the same selection) and excludes the min-0 firehose rules (cyclomatic_complexity, magic_int_in_comparison) that fire noise on every file rather than genuine structural debt. Requires the mache CLI."
+    cmds:
+      - mache build . smells.db
+      - mache find-smells --db smells.db --rule '*' --tags=gate --limit 100000 --baseline-root "$PWD" --baseline docs/smell-baseline.json
+
+  smells:baseline:
+    desc: "Regenerate docs/smell-baseline.json from the current scan (same --tags=gate selection as `task smells`). Deliberate re-grandfathering only (e.g. after an accepted refactor) — day-to-day use `task smells`. In a tree with any OTHER concurrent, unrelated unstaged/untracked WIP present, prefer `task smells:baseline:safe` instead — this target scans the real working tree as-is, WIP included (canonical-hours-4ba370)."
+    cmds:
+      - mache build . smells.db
+      - mache find-smells --db smells.db --rule '*' --tags=gate --limit 100000 --baseline-root "$PWD" --write-baseline docs/smell-baseline.json
+
+  smells:baseline:safe:
+    desc: "Like `smells:baseline`, but isolated from any concurrent unrelated WIP elsewhere in the working tree (canonical-hours-4ba370) — regenerates against the STAGED tree only, via the same git checkout-index isolation the pre-commit hook uses. Prefer this over `smells:baseline` whenever another process might have unstaged/untracked changes on disk."
+    cmds:
+      - scripts/smells-baseline-safe
+
+  check:
+    desc: "Fast gate — typecheck + test. Run this in the inner dev loop, and (once a CI workflow exists) in CI."
+    deps: [deps]
+    cmds:
+      - task typecheck
+      - task typecheck:vespers
+      - task test
+
+  ci:
+    desc: "The exact gate CI runs (.github/workflows/ci.yml): typecheck + test. The smell gate runs as its own workflow (.github/workflows/smells.yml, via mache's composite action) rather than through this task — see docs/smell-gate.md."
+    cmds:
+      - task: check
+
+  sync-server-json-version:
+    desc: "Update server.json's version to match package.json's, via a surgical string replacement (canonical-hours-5d74fc) — run this after bumping the package version. test/server-json.test.ts still catches drift if you forget."
+    cmds:
+      - node scripts/sync-server-json-version.mjs
+
+  install-hooks:
+    desc: "Symlink scripts/git-hooks/* into .git/hooks/. Run once per clone so the smell gate (task smells) fires automatically before every commit."
+    cmds:
+      - |
+        set -e
+        HOOK_DIR="$(git rev-parse --git-dir)/hooks"
+        for hook in scripts/git-hooks/*; do
+          name="$(basename "$hook")"
+          target="$HOOK_DIR/$name"
+          if [ -e "$target" ] && [ ! -L "$target" ]; then
+            echo "▸ $target exists and is NOT a symlink — back it up + re-run, or move aside manually."
+            exit 1
+          fi
+          ln -sf "$(pwd)/$hook" "$target"
+          echo "▸ wired $target -> $hook"
+        done

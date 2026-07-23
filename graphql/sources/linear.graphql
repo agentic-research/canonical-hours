@@ -1,0 +1,19 @@
+query LinearIssues($email: String!) {
+  issues(filter: { assignee: { email: { eq: $email } } }, first: 250) {
+    nodes {
+      identifier
+      title
+      url
+      priority
+      createdAt
+      updatedAt
+      team {
+        key
+      }
+      state {
+        name
+        type
+      }
+    }
+  }
+}

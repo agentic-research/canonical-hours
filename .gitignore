@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.output/
+.eve/
+.env
+board/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+
+# mache find-smells local index (regenerate with `mache build . smells.db`)
+smells.db
+
+# go-task checksum cache
+.task/

@@ -1,0 +1,66 @@
+{
+  "data": {
+    "rateLimit": { "remaining": 4999, "resetAt": "2026-07-21T12:00:00Z" },
+    "viewer": { "login": "jamestexas" },
+    "search": {
+      "nodes": [
+        {
+          "__typename": "PullRequest",
+          "number": 42,
+          "title": "feat: add pr-board skill",
+          "url": "https://github.com/jamestexas/agents/pull/42",
+          "state": "OPEN",
+          "mergedAt": null,
+          "closedAt": null,
+          "reviewDecision": "CHANGES_REQUESTED",
+          "mergeable": "MERGEABLE",
+          "mergeStateStatus": "BLOCKED",
+          "repository": { "owner": { "login": "jamestexas", "__typename": "User" }, "name": "agents" },
+          "reviews": {
+            "nodes": [
+              {
+                "id": "PRR_1",
+                "author": { "login": "mark", "__typename": "User" },
+                "state": "CHANGES_REQUESTED",
+                "submittedAt": "2026-07-16T14:00:00Z",
+                "body": "Please split this function.",
+                "url": "https://github.com/jamestexas/agents/pull/42#pullrequestreview-1"
+              }
+            ]
+          },
+          "comments": { "nodes": [] },
+          "reviewThreads": {
+            "nodes": [
+              {
+                "id": "PRRT_1",
+                "isResolved": false,
+                "path": "src/foo.ts",
+                "comments": {
+                  "nodes": [
+                    { "pullRequestReview": { "submittedAt": "2026-07-16T14:00:00Z" } }
+                  ]
+                }
+              }
+            ]
+          },
+          "commits": {
+            "nodes": [
+              {
+                "commit": {
+                  "statusCheckRollup": {
+                    "contexts": {
+                      "nodes": [
+                        { "__typename": "CheckRun", "name": "ci-required", "conclusion": "FAILURE" },
+                        { "__typename": "CheckRun", "name": "ci-optional", "conclusion": "FAILURE" }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

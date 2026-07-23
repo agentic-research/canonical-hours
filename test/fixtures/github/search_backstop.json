@@ -1,0 +1,27 @@
+{
+  "data": {
+    "rateLimit": { "remaining": 4998, "resetAt": "2026-07-21T12:00:00Z" },
+    "viewer": { "login": "jamestexas" },
+    "search": {
+      "nodes": [
+        {
+          "__typename": "PullRequest",
+          "number": 7,
+          "title": "fix: retry logic",
+          "url": "https://github.com/jamestexas/mache/pull/7",
+          "state": "OPEN",
+          "mergedAt": null,
+          "closedAt": null,
+          "reviewDecision": null,
+          "mergeable": "MERGEABLE",
+          "mergeStateStatus": "CLEAN",
+          "repository": { "owner": { "login": "jamestexas", "__typename": "User" }, "name": "mache" },
+          "reviews": { "nodes": [] },
+          "comments": { "nodes": [] },
+          "reviewThreads": { "nodes": [] },
+          "commits": { "nodes": [ { "commit": { "statusCheckRollup": null } } ] }
+        }
+      ]
+    }
+  }
+}

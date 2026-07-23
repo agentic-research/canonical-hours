@@ -1,0 +1,59 @@
+{
+  "name": "@agentic-research/vespers-core",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Portable tick/fold engine for canonical-hours board state.",
+  "license": "Apache-2.0",
+  "keywords": [
+    "agent",
+    "agentic-workflows",
+    "board",
+    "durable-state",
+    "event-folding",
+    "issue-tracking",
+    "observability",
+    "tick",
+    "workflow"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agentic-research/canonical-hours.git",
+    "directory": "packages/vespers"
+  },
+  "homepage": "https://github.com/agentic-research/canonical-hours/tree/main/packages/vespers",
+  "bugs": {
+    "url": "https://github.com/agentic-research/canonical-hours/issues"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "README.md",
+    "dist/**/*.d.ts",
+    "dist/**/*.js"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "test:workerd": "vitest run --config vitest.workerd.config.mts"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.18.7",
+    "@cloudflare/workers-types": "^5.20260722.1",
+    "wrangler": "^4.113.0",
+    "vitest": "4.1.10"
+  }
+}

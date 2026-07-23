@@ -1,0 +1,50 @@
+# Managed by rosary (rosary-05fbe0). The bead-store binary is local and must
+# not be git-tracked: binary DBs do not have safe git 3-way merge semantics.
+# Bead content is shared via the tracked, mergeable .beads/beads.jsonl.
+
+# SQLite store + sidecars (local only)
+beads.db
+beads.db-shm
+beads.db-wal
+beads.db-journal
+beads.db.migrated
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+db.sqlite
+
+# Dolt store + server runtime (legacy/local only)
+dolt/
+dolt.bak/
+dolt.bak.*/
+dolt-server.pid
+dolt-server.log
+dolt-server.lock
+dolt-server.port
+dolt-access.lock
+dolt-server.activity
+
+# Host-local runtime
+.beads-credential-key
+.local_version
+last-touched
+backup/
+interactions.jsonl
+redirect
+.sync.lock
+export-state/
+export-state.json
+sync-state.json
+
+# Ephemeral store (SQLite - wisps/molecules, intentionally not versioned)
+ephemeral.sqlite3
+ephemeral.sqlite3-journal
+ephemeral.sqlite3-wal
+ephemeral.sqlite3-shm
+
+# Daemon state, lockfiles, quarantined backups, and local environment
+daemon.*
+*.lock
+*.corrupt.backup/
+.env

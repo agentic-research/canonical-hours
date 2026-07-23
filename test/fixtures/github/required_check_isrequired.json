@@ -1,0 +1,23 @@
+{
+  "data": {
+    "rateLimit": { "remaining": 4990, "resetAt": "2026-07-21T12:00:00Z" },
+    "pr0": {
+      "commits": {
+        "nodes": [
+          {
+            "commit": {
+              "statusCheckRollup": {
+                "contexts": {
+                  "nodes": [
+                    { "__typename": "CheckRun", "name": "ci-required", "conclusion": "FAILURE", "isRequired": true },
+                    { "__typename": "CheckRun", "name": "ci-optional", "conclusion": "FAILURE", "isRequired": false }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

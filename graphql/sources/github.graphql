@@ -1,0 +1,91 @@
+query SearchPrs($q: String!) {
+  rateLimit {
+    remaining
+    resetAt
+  }
+  viewer {
+    login
+  }
+  search(query: $q, type: ISSUE, first: 50) {
+    nodes {
+      __typename
+      ... on PullRequest {
+        number
+        title
+        url
+        state
+        mergedAt
+        closedAt
+        reviewDecision
+        mergeable
+        mergeStateStatus
+        repository {
+          owner {
+            login
+            __typename
+          }
+          name
+        }
+        reviews(first: 50) {
+          nodes {
+            id
+            author {
+              login
+              __typename
+            }
+            state
+            submittedAt
+            body
+            url
+          }
+        }
+        comments(first: 50) {
+          nodes {
+            author {
+              login
+              __typename
+            }
+            createdAt
+            body
+            url
+          }
+        }
+        reviewThreads(first: 50) {
+          nodes {
+            id
+            isResolved
+            path
+            comments(first: 1) {
+              nodes {
+                pullRequestReview {
+                  submittedAt
+                }
+              }
+            }
+          }
+        }
+        commits(last: 1) {
+          nodes {
+            commit {
+              statusCheckRollup {
+                contexts(first: 50) {
+                  nodes {
+                    __typename
+                    ... on CheckRun {
+                      name
+                      conclusion
+                    }
+                    ... on StatusContext {
+                      context
+                      state
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

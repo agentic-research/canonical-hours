@@ -1,0 +1,99 @@
+import { z } from "zod";
+import type { FetchWindow } from "./fetch-window";
+
+export const LIFECYCLE_STATES = ["opened", "active", "needs_you", "resolved"] as const;
+export const LifecycleStateSchema = z.enum(LIFECYCLE_STATES);
+export type LifecycleState = z.infer<typeof LifecycleStateSchema>;
+
+/** Board sort order: needs_you first; resolved renders as a footnote. */
+export const LIFECYCLE_SORT_ORDER: Record<LifecycleState, number> = {
+  needs_you: 0,
+  active: 1,
+  opened: 2,
+  resolved: 3,
+};
+
+/** hard = provider ground truth (verdicts, merge/close). soft = derived/heuristic (enrichments, previews, summaries). */
+export const ClassificationSchema = z.enum(["hard", "soft"]);
+export type Classification = z.infer<typeof ClassificationSchema>;
+
+export const PrArtifactSchema = z.object({
+  uri: z.string().min(1),          // canonical, e.g. "pr:owner/repo#123"
+  kind: z.literal("pr"),
+  repo: z.string().min(1),         // "owner/repo", lowercased
+  number: z.number().int().positive(),
+  title: z.string(),
+  url: z.string(),
+});
+export type PrArtifact = z.infer<typeof PrArtifactSchema>;
+
+export const IssueArtifactSchema = z.object({
+  uri: z.string().min(1),          // canonical, e.g. "issue:team/team-123"
+  kind: z.literal("issue"),
+  team: z.string().min(1),         // Linear team key, lowercased in the uri
+  identifier: z.string().min(1),   // Linear's own display id, e.g. "ART-123"
+  title: z.string(),
+  url: z.string(),
+});
+export type IssueArtifact = z.infer<typeof IssueArtifactSchema>;
+
+/**
+ * A board artifact — a PR or a Linear issue today, a registry entry for a
+ * third kind tomorrow, not a rewrite. Every Source implementation constructs
+ * exactly one variant; mergeEvents/foldState (merge.ts) never branch on
+ * `kind` — they only ever read `.uri`, so they need no changes when a new
+ * kind is added here.
+ */
+export const ArtifactSchema = z.discriminatedUnion("kind", [PrArtifactSchema, IssueArtifactSchema]);
+export type Artifact = z.infer<typeof ArtifactSchema>;
+
+export const ObservationSchema = z.object({
+  artifact_uri: z.string().min(1),
+  at: z.string().min(1),           // ISO 8601
+  author: z.string(),
+  // Canonical vocabulary consumed by foldState:
+  // review_approved | review_changes_requested | review_commented | review |
+  // review_comment | comment | own_reply | merge | close | check_failed |
+  // enrichment | (source-specific passthrough)
+  type: z.string(),
+  payload: z.record(z.string(), z.unknown()),
+  classification: ClassificationSchema,
+});
+export type Observation = z.infer<typeof ObservationSchema>;
+
+export const LifecycleEventSchema = z.object({
+  artifact: ArtifactSchema,
+  observations: z.array(ObservationSchema),
+  state_hint: LifecycleStateSchema.optional(),
+  // Passthrough bag for source-specific derived board fields (e.g. GithubSource's
+  // merge_ready) that don't fit the Observation/foldState vocabulary — never read
+  // by foldState itself, only by tick.ts when building a board entry.
+  extra: z.record(z.string(), z.unknown()).optional(),
+});
+export type LifecycleEvent = z.infer<typeof LifecycleEventSchema>;
+
+export function canonicalPrUri(owner: string, repo: string, number: number): string {
+  return `pr:${owner.toLowerCase()}/${repo.toLowerCase()}#${number}`;
+}
+
+export function canonicalIssueUri(team: string, identifier: string): string {
+  return `issue:${team.toLowerCase()}/${identifier.toLowerCase()}`;
+}
+
+/**
+ * The local Source protocol. Local to this package by design — not a
+ * cross-project protocol. lectio and GitHub are canonical-hours' two v1
+ * implementations; a third source is a registry entry, not a rewrite.
+ */
+export interface Source {
+  /** Registry key; also the name used in freshness/degradations entries. */
+  name: string;
+  /** Zod schema for ONE raw provider record. Parsed at the adapter boundary; drift fails loudly as that source's degradation. */
+  schema: z.ZodType;
+  /** Raw records for the lookback window, plus any stateless current-state records (e.g. the GitHub open-PRs backstop). */
+  fetch(window: FetchWindow): Promise<unknown[]>;
+  /** Normalize one raw record (parsing it with `schema` internally) into a lifecycle event. Throws (loudly) on schema drift. */
+  mapToLifecycleEvent(raw: unknown): LifecycleEvent;
+  /** ISO timestamp the source's data last advanced, or null if unknown. */
+  freshness(): Promise<string | null>;
+}

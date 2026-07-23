@@ -1,0 +1,16 @@
+# vigil watch for this repo — adopted by the global config
+# (~/.config/vigil/watches.toml `repos = [...]`) rather than declared
+# inline there. See ~/remotes/art/vigil/README.md "Configuration" for the
+# fragment-adoption rules: `repo.local_path` and (when `bead_ids` is set)
+# `bead_repo` default to this file's own directory, so both are left
+# unset here on purpose.
+
+[[watches]]
+name = "canonical-hours"
+bead_ids = []
+branch = "main"
+
+[watches.repo]
+
+[watches.condition]
+type = "merge_shaped"
