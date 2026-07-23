@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { sharedSecretGate, notmeDpopGate } from "../agent/lib/action-gate";
-import { computeJwkThumbprint } from "../agent/lib/vendor/notme-dpop";
+import { computeJwkThumbprint } from "@agentic-research/dpop";
 
 describe("sharedSecretGate", () => {
   it("denies every call when no token is configured (default-deny)", async () => {

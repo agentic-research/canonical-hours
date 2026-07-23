@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { verifyDPoPToken } from "./vendor/notme-dpop";
+import { verifyDPoPToken } from "@agentic-research/dpop";
 
 /** Structurally compatible with the MCP SDK's IsomorphicHeaders — declared
  * locally so this module doesn't reach into SDK-internal export paths. */
@@ -143,14 +143,20 @@ export function notmeDpopGate(opts: NotmeDpopGateOptions): ActionGate {
         proof,
         method: "POST",
         url,
-        // jwksUrl is unused when publicKey is set, but the vendored type
-        // requires the field — the guard above guarantees one of the two
-        // is real when we reach here.
+        // jwksUrl is unused when publicKey is set, but the SDK type requires
+        // the field — the guard above guarantees one of the two is real when
+        // we reach here.
         jwksUrl: jwksUrl ?? "",
         publicKey: opts.publicKey,
         audience: opts.audience,
         issuer: opts.issuer,
         seenJti: opts.seenJti ?? seenJtiTracker.check,
+        // notme mints `nbf: iat` on every access token and the SDK defaults to
+        // zero skew tolerance, so a verifier whose clock trails auth.notme.bot
+        // — which this is, running on separate infrastructure — rejects
+        // perfectly good tokens. Bounded deliberately: it widens `exp` too.
+        // cloister hit this as a live regression (notme-18450e).
+        clockTolerance: 60,
       });
       if (opts.requiredScope && !claims.scope.split(/\s+/).includes(opts.requiredScope)) {
         return { allowed: false, reason: `token missing required scope "${opts.requiredScope}"` };
