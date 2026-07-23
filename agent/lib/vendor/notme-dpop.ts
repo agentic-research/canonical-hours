@@ -5,16 +5,26 @@
  * (no package.json, not an npm registry entry) and isn't part of its own
  * pnpm workspace either — there's no dependency mechanism to point at.
  * Copied from agentic-research/notme
- * (~/remotes/art/notme/gen/ts/dpop.ts, commit cec1203b0634a350bf00e5106841e174264cb817)
- * under its Apache-2.0 license — unmodified except this header and three
- * `as BufferSource` casts on `crypto.subtle.verify()` signature arguments
- * (this repo's TS version types `Uint8Array` stricter than notme's own
- * tsconfig requires; no behavior change). Confirmed
- * portable: zero imports, pure Web Crypto (`crypto.subtle`) + `fetch`,
- * neither Cloudflare-Workers-specific nor Node-specific — same functions
- * notme itself, rig, and any Worker verifying auth.notme.bot tokens use.
- * Re-sync manually if notme's verification logic changes upstream — see
- * canonical-hours-f49482.
+ * (~/remotes/art/notme/gen/ts/dpop.ts, commit 0024ba5f4487b5a11e3984b6ecb2fb0ee2f25bf6)
+ * under its MIT license (notme's NOTICE: gen/ts is MIT, patterns derived
+ * from jose; the top-level Apache-2.0 covers the rest of the repo, not
+ * this file — corrected from an earlier, wrong claim here) — unmodified
+ * except this header and three `as BufferSource` casts on
+ * `crypto.subtle.verify()` signature arguments (this repo's TS version
+ * types `Uint8Array` stricter than notme's own tsconfig requires; no
+ * behavior change).
+ *
+ * Re-vendored for notme-dffc5c: verifyDPoPToken now checks
+ * audience/issuer/token-typ and takes an optional seenJti replay hook —
+ * previously canonical-hours' own notmeDpopGate (action-gate.ts) checked
+ * audience manually after the fact, working around the same gap this
+ * commit fixed upstream. That manual check is gone; the SDK does it now.
+ *
+ * Confirmed portable: zero imports, pure Web Crypto (`crypto.subtle`) +
+ * `fetch`, neither Cloudflare-Workers-specific nor Node-specific — same
+ * functions notme itself, cloister, and any Worker verifying
+ * auth.notme.bot tokens use. Re-sync manually if notme's verification
+ * logic changes upstream — see canonical-hours-f49482.
  *
  * Provides:
  *   - computeJwkThumbprint() — RFC 7638 JWK Thumbprint
@@ -23,6 +33,7 @@
  *
  * Pure Web Crypto — no npm dependencies.
  */
+
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -83,6 +94,30 @@ export interface VerifyDPoPTokenOptions {
    * Useful for tests or environments where the key is already known.
    */
   publicKey?: CryptoKey;
+  /**
+   * Expected audience — string or array. REQUIRED. Resource servers MUST
+   * set this to their own URL to prevent confused-deputy: a token minted
+   * for a different resource server (same notme issuer, same public key)
+   * would otherwise pass this verifier. Mirrors `VerifyAccessTokenOptions.audience`
+   * — was previously unchecked here (a real gap, found auditing an
+   * external consumer's usage; see notme-9c2b41).
+   */
+  audience: string | string[];
+  /**
+   * Expected issuer — when set, rejects tokens whose `iss` claim doesn't
+   * match. Defaults to no check so the SDK works with self-hosted notme
+   * deployments under different domains. Mirrors `VerifyAccessTokenOptions.issuer`.
+   */
+  issuer?: string;
+  /**
+   * Replay check for the DPoP proof's `jti` (single-use, not the access
+   * token's jti). Return `true` if this jti has already been seen — the
+   * verifier throws. Optional: the SDK is issuer-agnostic about where a
+   * durable seen-jti ledger lives (a resource server's own KV/DO/cache),
+   * so without this hook only the 60s `iat` freshness window bounds
+   * replay, not true single-use.
+   */
+  seenJti?: (jti: string) => boolean | Promise<boolean>;
 }
 
 /** Claims returned on successful verification. */
@@ -128,10 +163,13 @@ const JWKS_TTL = 3600; // 1 hour
 /**
  * Verify a DPoP-bound access token from auth.notme.bot.
  *
- * Performs all four verification steps:
+ * Performs all five verification steps:
  *   1. Fetch the Ed25519 signing key from JWKS (with optional KV caching)
- *   2. Verify the access token's EdDSA signature and validate claims
- *   3. Verify the DPoP proof's ES256 signature and validate htm/htu (exact match)
+ *   2. Verify the access token's EdDSA signature, typ, and claims (exp/nbf/
+ *      iat/iss/aud/sub, via the same `validateClaims` the non-DPoP
+ *      `verifyAccessToken` path uses — notme-dffc5c)
+ *   3. Verify the DPoP proof's ES256 signature, jti (+ optional replay
+ *      check via `opts.seenJti`), and validate htm/htu (exact match)
  *   4. Verify cnf.jkt binding — proof key thumbprint must match token claim
  *
  * @returns Verified token claims on success.
@@ -140,7 +178,7 @@ const JWKS_TTL = 3600; // 1 hour
 export async function verifyDPoPToken(
   opts: VerifyDPoPTokenOptions,
 ): Promise<VerifiedTokenClaims> {
-  const { token, proof, method, url, jwksUrl, kv, publicKey } = opts;
+  const { token, proof, method, url, jwksUrl, kv, publicKey, audience, issuer, seenJti } = opts;
 
   // ── 1. Verify access token ──────────────────────────────────────────────
 
@@ -166,19 +204,25 @@ export async function verifyDPoPToken(
     throw new Error("Invalid access token signature");
   }
 
-  // Parse and validate token claims
+  // typ pin — an EdDSA JWT notme signed with the same key for a different
+  // purpose (e.g. an id_token, notme-dffc5c/012) must not be replayed here
+  // as an access token.
+  const tHeader = jsonParse(base64urlDecodeStr(tHeaderB64), "access token header");
+  if (tHeader.typ !== "at+jwt") {
+    throw new Error(`Access token typ must be "at+jwt", got "${tHeader.typ}"`);
+  }
+
+  // Parse and validate token claims via the shared validator — covers exp,
+  // nbf, iat, iss, aud, sub uniformly, the same claim-check logic
+  // verifyAccessToken uses (rosary-81353c). exp is a hard requirement here
+  // (validateClaims only checks it when present; a DPoP token without exp
+  // would break the short-lived contract), pre-checked before delegating.
   const tPayload = jsonParse(base64urlDecodeStr(tPayloadB64), "access token payload");
   const now = Math.floor(Date.now() / 1000);
-
-  if (typeof tPayload.exp !== "number" || tPayload.exp <= now) {
-    throw new Error("Access token expired");
+  if (typeof tPayload.exp !== "number") {
+    throw new Error("Access token missing exp claim");
   }
-  if (typeof tPayload.iat === "number" && tPayload.iat > now + 60) {
-    throw new Error("Access token iat is in the future");
-  }
-  if (!tPayload.sub || typeof tPayload.sub !== "string") {
-    throw new Error("Access token missing sub claim");
-  }
+  validateClaims(tPayload, { issuer, audience, requireSub: true });
 
   // ── 2. Verify DPoP proof ───────────────────────────────────────────────
 
@@ -242,6 +286,14 @@ export async function verifyDPoPToken(
   // jti required — without it, replay detection is impossible
   if (!pPayload.jti || typeof pPayload.jti !== "string") {
     throw new Error("DPoP proof missing jti claim");
+  }
+
+  // Optional durable single-use check — the SDK is issuer-agnostic about
+  // where a seen-jti ledger lives (a resource server's own KV/DO/cache),
+  // so without this hook only the 60s iat freshness window below bounds
+  // replay, not true single-use (notme-dffc5c).
+  if (seenJti && (await seenJti(pPayload.jti))) {
+    throw new Error("DPoP proof replay: jti already seen");
   }
 
   // iat required and must be within 60s — prevents replay of intercepted proofs

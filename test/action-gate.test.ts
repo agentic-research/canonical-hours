@@ -89,12 +89,13 @@ async function mintToken(opts: {
   audience?: string;
   expOverride?: number;
   iatOverride?: number;
+  issuerOverride?: string;
 }): Promise<string> {
   const header = { typ: "at+jwt", alg: "EdDSA", kid: "test-kid" };
   const iat = opts.iatOverride ?? Math.floor(Date.now() / 1000);
   const payload: Record<string, unknown> = {
     sub: opts.sub,
-    iss: "https://auth.notme.bot",
+    iss: opts.issuerOverride ?? "https://auth.notme.bot",
     aud: opts.audience ?? AUDIENCE,
     iat,
     nbf: iat,
@@ -199,7 +200,9 @@ describe("notmeDpopGate", () => {
       url: URL_,
     });
     expect(verdict.allowed).toBe(false);
-    expect((verdict as { reason: string }).reason).toContain("audience mismatch");
+    // notme-dffc5c: audience is checked inside verifyDPoPToken itself now,
+    // so this asserts the SDK's own message, not a locally-composed one.
+    expect((verdict as { reason: string }).reason).toContain('"aud" claim mismatch');
   });
 
   it("denies an expired token", async () => {
@@ -278,5 +281,70 @@ describe("notmeDpopGate", () => {
       url: URL_,
     });
     expect(verdict).toEqual({ allowed: true });
+  });
+
+  // notme-dffc5c / canonical-hours-f49482: issuer pin + replay hook, now
+  // that verifyDPoPToken supports both directly.
+
+  it("denies a token with the wrong issuer when issuer is pinned", async () => {
+    const token = await mintToken({
+      signingKey: edKp.privateKey,
+      sub: "agent-1",
+      jkt,
+      issuerOverride: "https://not-auth.notme.bot",
+    });
+    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, htm: "POST", htu: URL_ });
+    const gate = notmeDpopGate({ audience: AUDIENCE, publicKey: edKp.publicKey, issuer: "https://auth.notme.bot" });
+    const verdict = await gate({
+      toolName: "t",
+      headers: { authorization: `DPoP ${token}`, dpop: proof },
+      url: URL_,
+    });
+    expect(verdict.allowed).toBe(false);
+    expect((verdict as { reason: string }).reason).toContain('"iss" claim mismatch');
+  });
+
+  it("accepts a token with the pinned issuer", async () => {
+    const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
+    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, htm: "POST", htu: URL_ });
+    const gate = notmeDpopGate({ audience: AUDIENCE, publicKey: edKp.publicKey, issuer: "https://auth.notme.bot" });
+    const verdict = await gate({
+      toolName: "t",
+      headers: { authorization: `DPoP ${token}`, dpop: proof },
+      url: URL_,
+    });
+    expect(verdict).toEqual({ allowed: true });
+  });
+
+  it("denies a replayed proof when seenJti is injected to report it seen", async () => {
+    const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
+    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, htm: "POST", htu: URL_ });
+    const gate = notmeDpopGate({ audience: AUDIENCE, publicKey: edKp.publicKey, seenJti: () => true });
+    const verdict = await gate({
+      toolName: "t",
+      headers: { authorization: `DPoP ${token}`, dpop: proof },
+      url: URL_,
+    });
+    expect(verdict.allowed).toBe(false);
+    expect((verdict as { reason: string }).reason).toContain("replay");
+  });
+
+  it("rejects the second use of the same proof against the default (module-shared) replay tracker", async () => {
+    const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
+    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, htm: "POST", htu: URL_ });
+    const gate = notmeDpopGate({ audience: AUDIENCE, publicKey: edKp.publicKey });
+    const first = await gate({
+      toolName: "t",
+      headers: { authorization: `DPoP ${token}`, dpop: proof },
+      url: URL_,
+    });
+    expect(first).toEqual({ allowed: true });
+    const replayed = await gate({
+      toolName: "t",
+      headers: { authorization: `DPoP ${token}`, dpop: proof },
+      url: URL_,
+    });
+    expect(replayed.allowed).toBe(false);
+    expect((replayed as { reason: string }).reason).toContain("replay");
   });
 });

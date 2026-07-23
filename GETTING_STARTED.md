@@ -24,8 +24,8 @@ How to go from zero to a running canonical-hours PR board.
     [notme](https://github.com/agentic-research/notme)-issued DPoP-bound
     access token, real proof-of-possession: a captured header pair alone
     is useless without the caller's private key. Optional
-    `NOTME_AUDIENCE` (defaults `"canonical-hours"`) and
-    `NOTME_REQUIRED_SCOPE`.
+    `NOTME_AUDIENCE` (defaults `"canonical-hours"`), `NOTME_ISSUER`
+    (omit to accept any issuer), and `NOTME_REQUIRED_SCOPE`.
   - **`MCP_ACTION_TOKEN`** — a static shared secret; callers send a
     matching `Authorization: Bearer` header. Simpler, no notme
     dependency, but a leaked token is indefinite access.
@@ -68,6 +68,7 @@ LINEAR_API_KEY=...     # optional — only if you enable the [linear] source
 MCP_ACTION_TOKEN=...   # optional — static-secret gate; see the mutating-tools note above
 NOTME_URL=...          # optional — recommended over MCP_ACTION_TOKEN, see above
 NOTME_AUDIENCE=...     # optional — defaults to "canonical-hours"
+NOTME_ISSUER=...       # optional — omit to accept any issuer
 NOTME_REQUIRED_SCOPE=...   # optional
 CANONICAL_HOURS_PRIVATE_SOURCES_PATH=...   # optional — see the private-sources note above
 ```

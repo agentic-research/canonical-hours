@@ -81,14 +81,16 @@ export interface NotmeDpopGateOptions {
    * Defaults to `${NOTME_URL}/.well-known/jwks.json` when NOTME_URL is set. */
   jwksUrl?: string;
   /**
-   * Expected `aud` claim — REQUIRED. `verifyDPoPToken` (vendored from notme,
-   * see vendor/notme-dpop.ts) does not check audience itself — that's only
-   * enforced on the non-DPoP `verifyAccessToken` path — so without this
-   * check here, any valid notme-issued DPoP token minted for a *different*
-   * resource server would also pass this gate (confused-deputy). Checked
-   * manually below against `VerifiedTokenClaims.aud`.
+   * Expected `aud` claim — REQUIRED by the vendored `verifyDPoPToken` itself
+   * (notme-dffc5c: audience is now checked inside the SDK, not layered on
+   * top here) — a token minted for a different resource server is rejected
+   * before this function ever sees its claims.
    */
   audience: string;
+  /** Expected `iss` claim, passed straight through to `verifyDPoPToken`.
+   * Optional — omit to accept any issuer (useful for self-hosted notme
+   * deployments under a different domain). */
+  issuer?: string;
   /** If set, the token's space-separated `scope` claim must include this
    * value, or the call is denied. Optional — omit for "any valid caller". */
   requiredScope?: string;
@@ -96,6 +98,11 @@ export interface NotmeDpopGateOptions {
    * and for deployments that want to pin notme's signing key rather than
    * fetch it per call. Passed straight through to `verifyDPoPToken`. */
   publicKey?: CryptoKey;
+  /** Replay check for the DPoP proof's jti — defaults to a shared
+   * in-memory tracker (see `seenJtiTracker` below) when omitted. Tests
+   * that want to assert replay behavior in isolation, or a future
+   * deployment that wants a durable store, can inject their own. */
+  seenJti?: (jti: string) => boolean | Promise<boolean>;
 }
 
 /**
@@ -107,11 +114,9 @@ export interface NotmeDpopGateOptions {
  * built for exactly this situation (an app framework, eve/Vercel, with no
  * TLS-server config exposure), not a fallback.
  *
- * Known limitation, stated honestly: this does not track `jti` across
- * calls, so a captured proof is only rejected once its 60s freshness
- * window (enforced inside `verifyDPoPToken`) elapses — not immediately.
- * True replay-once semantics would need a persistent jti-seen store; the
- * vendored verifier's optional `kv` param is for JWKS caching, not that.
+ * `seenJti` (below, wired by `defaultActionGate`) closes what used to be a
+ * documented limitation here: without it, a captured proof was only
+ * rejected once its 60s freshness window elapsed, not immediately.
  */
 export function notmeDpopGate(opts: NotmeDpopGateOptions): ActionGate {
   const jwksUrl =
@@ -143,10 +148,10 @@ export function notmeDpopGate(opts: NotmeDpopGateOptions): ActionGate {
         // is real when we reach here.
         jwksUrl: jwksUrl ?? "",
         publicKey: opts.publicKey,
+        audience: opts.audience,
+        issuer: opts.issuer,
+        seenJti: opts.seenJti ?? seenJtiTracker.check,
       });
-      if (claims.aud !== opts.audience) {
-        return { allowed: false, reason: `token audience mismatch: expected "${opts.audience}", got "${claims.aud}"` };
-      }
       if (opts.requiredScope && !claims.scope.split(/\s+/).includes(opts.requiredScope)) {
         return { allowed: false, reason: `token missing required scope "${opts.requiredScope}"` };
       }
@@ -158,6 +163,32 @@ export function notmeDpopGate(opts: NotmeDpopGateOptions): ActionGate {
 }
 
 /**
+ * In-memory jti-seen tracker for `notmeDpopGate`'s replay hook. Not a
+ * durable store (a process restart forgets everything) — but canonical-
+ * hours runs as one long-lived Node process (`eve dev`/Nitro), not
+ * stateless-per-request serverless, so an in-memory Map genuinely closes
+ * the replay gap for the process's actual lifetime. Entries are pruned
+ * past `TTL_MS` (well beyond `verifyDPoPToken`'s own 60s freshness
+ * window — a proof past that window is rejected on `iat` alone, so
+ * nothing useful survives to be pruned early).
+ */
+const seenJtiTracker = (() => {
+  const TTL_MS = 120_000;
+  const seenAt = new Map<string, number>();
+  return {
+    check(jti: string): boolean {
+      const now = Date.now();
+      for (const [key, ts] of seenAt) {
+        if (now - ts > TTL_MS) seenAt.delete(key);
+      }
+      if (seenAt.has(jti)) return true;
+      seenAt.set(jti, now);
+      return false;
+    },
+  };
+})();
+
+/**
  * Picks the configured gate: `notmeDpopGate` when `NOTME_URL` is set,
  * `sharedSecretGate` otherwise. Not a breaking migration — notme is
  * "experimental, not audited" per its own README, so the static-secret
@@ -167,6 +198,7 @@ export function defaultActionGate(): ActionGate {
   if (process.env.NOTME_URL) {
     return notmeDpopGate({
       audience: process.env.NOTME_AUDIENCE ?? "canonical-hours",
+      issuer: process.env.NOTME_ISSUER,
       requiredScope: process.env.NOTME_REQUIRED_SCOPE,
     });
   }

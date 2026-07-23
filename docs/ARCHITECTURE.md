@@ -493,10 +493,19 @@ nothing to revoke short of rotating the secret.
 DPoP-bound access token (RFC 9449) via `agent/lib/vendor/notme-dpop.ts`
 (vendored from notme's own `gen/ts/dpop.ts` — not published as a
 package, no dependency mechanism to point at; see that file's header for
-provenance and the one behavioral gap patched on top: `verifyDPoPToken`
-doesn't check `aud` itself, so `notmeDpopGate` checks it manually against
-`VerifiedTokenClaims.aud` before allowing — otherwise a token minted for
-a *different* resource server would also pass here). DPoP, not notme's
+provenance). `verifyDPoPToken` itself now checks audience, issuer, and
+the access token's own `typ` header, and takes an optional replay
+(`seenJti`) hook — originally these were missing entirely (a real
+confused-deputy gap, found auditing this repo's own usage of the SDK)
+and `notmeDpopGate` patched them locally; that fix moved upstream into
+notme's SDK instead (notme-dffc5c), so cloister — an independent
+consumer that had separately hand-rolled the same checks — could
+delete its own copy too, rather than three repos maintaining parallel
+versions of the same hardening logic. `notmeDpopGate`'s own replay hook
+now defaults to an in-memory jti tracker (`seenJtiTracker` in
+`action-gate.ts`) — closes what used to be a documented gap, real for
+this repo's actual deployment shape (one long-lived Node process, not
+stateless-per-request). DPoP, not notme's
 mTLS bridge-cert path: investigated and ruled out was mTLS client-cert
 verification, which needs either eve exposing raw TLS-server config
 (checked — it doesn't, zero hits for `requestCert`/`mTLS`/`TLS` across
