@@ -36,6 +36,7 @@ redirect
 export-state/
 export-state.json
 sync-state.json
+push-state.json
 
 # Ephemeral store (SQLite - wisps/molecules, intentionally not versioned)
 ephemeral.sqlite3
