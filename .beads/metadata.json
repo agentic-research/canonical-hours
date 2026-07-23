@@ -1,7 +1,5 @@
 {
-  "database": "dolt",
-  "backend": "dolt",
-  "dolt_mode": "embedded",
-  "dolt_database": "canonical_hours",
+  "database": "sqlite",
+  "backend": "sqlite",
   "project_id": "f7367993-e5bf-4f9b-847f-87bf9c8b8f87"
 }
