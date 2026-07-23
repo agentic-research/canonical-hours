@@ -1,6 +1,12 @@
 # Dolt database (managed by Dolt, not git)
 dolt/
 
+# `dolt.bak/` is the PREVIOUS store, kept on disk deliberately after the
+# dolt → sqlite backend migration. Local artifact: keep it, never commit it.
+# The `dolt/` rule above does NOT match it — gitignore patterns are literal,
+# so a backup named `dolt.bak` sails straight past it into `git add -A`.
+dolt.bak/
+
 # Runtime files
 bd.sock
 bd.sock.startlock
