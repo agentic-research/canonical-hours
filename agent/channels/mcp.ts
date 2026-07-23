@@ -11,7 +11,14 @@ import type { InvokeAgentRuntime } from "../lib/invoke-agent";
 import { resolveAddressedThreads } from "../lib/thread-resolution";
 import { dismissStaleBotReviews } from "../lib/bot-review-dismissal";
 import { parsePrRef } from "../lib/pr-ref";
-import { sharedSecretGate, type ActionGate, type HeaderLookup } from "../lib/action-gate";
+import { defaultActionGate, type ActionGate, type HeaderLookup } from "../lib/action-gate";
+
+/** Normalizes a requestInfo URL to origin+pathname (no query/fragment) —
+ * the exact-match shape `notmeDpopGate`'s DPoP `htu` verification expects
+ * (RFC 9449 §4.3). Callers on the shared-secret gate never read this. */
+function gateUrl(url: URL | undefined): string | undefined {
+  return url ? `${url.origin}${url.pathname}` : undefined;
+}
 
 /**
  * `get_board` — read-only MCP view of the existing board contract.
@@ -116,11 +123,12 @@ const RESOLVE_RESULT_SCHEMA = {
  * watch-pr.md §2c: resolves an unresolved thread iff its file changed in a
  * commit landed after the thread's originating review. Never called from
  * the tick — opt-in only, gated by `gate` (canonical-hours-49ba33; default
- * `sharedSecretGate()`, default-deny) before it ever touches GitHub.
+ * `defaultActionGate()` — notme DPoP when NOTME_URL is set, else the
+ * static-secret gate, both default-deny) before it ever touches GitHub.
  */
 export function registerResolveThreadsTool(
   server: McpServer,
-  gate: ActionGate = sharedSecretGate(),
+  gate: ActionGate = defaultActionGate(),
 ): void {
   server.registerTool(
     "resolve_addressed_review_threads",
@@ -136,6 +144,7 @@ export function registerResolveThreadsTool(
       const verdict = await gate({
         toolName: "resolve_addressed_review_threads",
         headers: (extra.requestInfo?.headers ?? {}) as HeaderLookup,
+        url: gateUrl(extra.requestInfo?.url),
       });
       if (!verdict.allowed) {
         return { content: [{ type: "text" as const, text: `denied: ${verdict.reason}` }], isError: true };
@@ -174,11 +183,12 @@ const DISMISS_RESULT_SCHEMA = {
  * landed after it. Bot detection is __typename === "Bot" or a [bot]-suffixed
  * login — never a bare "-bot" suffix (human usernames can collide). Never
  * called from the tick — opt-in only, gated by `gate` (canonical-hours-49ba33;
- * default `sharedSecretGate()`, default-deny) before it ever touches GitHub.
+ * default `defaultActionGate()` — notme DPoP when NOTME_URL is set, else the
+ * static-secret gate, both default-deny) before it ever touches GitHub.
  */
 export function registerDismissBotReviewsTool(
   server: McpServer,
-  gate: ActionGate = sharedSecretGate(),
+  gate: ActionGate = defaultActionGate(),
 ): void {
   server.registerTool(
     "dismiss_stale_bot_reviews",
@@ -194,6 +204,7 @@ export function registerDismissBotReviewsTool(
       const verdict = await gate({
         toolName: "dismiss_stale_bot_reviews",
         headers: (extra.requestInfo?.headers ?? {}) as HeaderLookup,
+        url: gateUrl(extra.requestInfo?.url),
       });
       if (!verdict.allowed) {
         return { content: [{ type: "text" as const, text: `denied: ${verdict.reason}` }], isError: true };

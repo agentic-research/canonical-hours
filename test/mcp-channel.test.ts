@@ -469,7 +469,7 @@ describe("e2e: real SDK client over streamable-HTTP", () => {
   });
 
   // canonical-hours-49ba33: production wiring (buildMcpServer's default
-  // sharedSecretGate()) over the real HTTP stack — the only path that
+  // defaultActionGate()) over the real HTTP stack — the only path that
   // actually populates extra.requestInfo.headers (the InMemory-transport
   // tests above use an explicit ALLOW_ALL gate instead, since they're
   // testing pr-parsing/delegation, not the gate).

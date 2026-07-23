@@ -133,12 +133,26 @@ The two mutating tools go through `agent/lib/action-gate.ts`'s
 eve's `defineTool` `approval()` primitive (that gates a *model's own* tool
 call inside an eve session; these tools are called by external MCP
 clients over a stateless HTTP channel, outside any session, so it doesn't
-apply here). The default implementation, `sharedSecretGate()`, is
-default-deny: with `MCP_ACTION_TOKEN` unset, every call is refused before
-it reaches GitHub; set it, and callers must send a matching
-`Authorization: Bearer <token>` header. The hook is swappable — a
-stronger check (e.g. verifying a lease certificate a proxy might one day
-forward) can replace it without touching the tools themselves.
+apply here). `defaultActionGate()` picks one of two implementations, both
+default-deny:
+
+- **`sharedSecretGate()`** (default when `NOTME_URL` is unset): a static
+  shared secret — set `MCP_ACTION_TOKEN`, and callers must send a
+  matching `Authorization: Bearer <token>` header. Simple, but a leaked
+  token grants indefinite access.
+- **`notmeDpopGate()`** (used when `NOTME_URL` is set) — the recommended
+  option, and a real security upgrade, not a token swap: it verifies a
+  [notme](https://github.com/agentic-research/notme)-issued DPoP-bound
+  access token (RFC 9449), sender-constrained proof-of-possession rather
+  than a bearer secret. Stealing the `Authorization`/`DPoP` header pair
+  gets an attacker nothing — the token is cryptographically bound
+  (`cnf.jkt`) to a private key that's generated client-side and never
+  transmitted, so a captured header pair is useless without it. This is
+  the same identity model backing the rest of this org's infrastructure
+  (cloister, rig); `MCP_ACTION_TOKEN`/`sharedSecretGate()` is the
+  zero-dependency fallback for anyone not running notme, not the
+  preferred path. Set `NOTME_URL` (and optionally `NOTME_AUDIENCE`,
+  `NOTME_REQUIRED_SCOPE`) to switch to it — see `agent/lib/action-gate.ts`.
 
 `server.json` at the repo root is the registry document a cloister
 `cloister add` (or equivalent MCP client registration) consumes: it

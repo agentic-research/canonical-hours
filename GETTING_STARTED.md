@@ -13,13 +13,22 @@ How to go from zero to a running canonical-hours PR board.
   is enough; the two action tools below need write access to review
   threads/reviews on repos you want them to mutate).
 - If you want the two mutating action tools (`resolve_addressed_review_threads`,
-  `dismiss_stale_bot_reviews`) reachable at all, an `MCP_ACTION_TOKEN` —
-  they're default-deny (canonical-hours-49ba33): unset means every call is
-  refused before it ever touches GitHub; callers must send a matching
-  `Authorization: Bearer` header. This is independent of `GITHUB_TOKEN`'s
-  scope above — one controls whether a caller may invoke the tool at all,
-  the other controls whether the tool's own GitHub call succeeds once
-  invoked. You need both for the tools to actually work end to end.
+  `dismiss_stale_bot_reviews`) reachable at all, an authorization gate —
+  they're default-deny (canonical-hours-49ba33): with neither option below
+  configured, every call is refused before it ever touches GitHub. This is
+  independent of `GITHUB_TOKEN`'s scope above — one controls whether a
+  caller may invoke the tool at all, the other controls whether the tool's
+  own GitHub call succeeds once invoked. You need both for the tools to
+  actually work end to end. Two gates, pick one:
+  - **`NOTME_URL`** (recommended) — verifies a
+    [notme](https://github.com/agentic-research/notme)-issued DPoP-bound
+    access token, real proof-of-possession: a captured header pair alone
+    is useless without the caller's private key. Optional
+    `NOTME_AUDIENCE` (defaults `"canonical-hours"`) and
+    `NOTME_REQUIRED_SCOPE`.
+  - **`MCP_ACTION_TOKEN`** — a static shared secret; callers send a
+    matching `Authorization: Bearer` header. Simpler, no notme
+    dependency, but a leaked token is indefinite access.
 - Optionally, access to a running [lectio](../lectio) instance
   (`LECTIO_URL` + `LECTIO_TOKEN`) — canonical-hours reads authored-PR
   *activity* from lectio and review *verdicts* from GitHub, and merges
@@ -56,7 +65,10 @@ GITHUB_TOKEN=...
 ANTHROPIC_API_KEY=...
 WEATHER_API_KEY=...    # optional — only if you want the weather snapshot
 LINEAR_API_KEY=...     # optional — only if you enable the [linear] source
-MCP_ACTION_TOKEN=...   # optional but recommended — see the mutating-tools note above
+MCP_ACTION_TOKEN=...   # optional — static-secret gate; see the mutating-tools note above
+NOTME_URL=...          # optional — recommended over MCP_ACTION_TOKEN, see above
+NOTME_AUDIENCE=...     # optional — defaults to "canonical-hours"
+NOTME_REQUIRED_SCOPE=...   # optional
 CANONICAL_HOURS_PRIVATE_SOURCES_PATH=...   # optional — see the private-sources note above
 ```
 

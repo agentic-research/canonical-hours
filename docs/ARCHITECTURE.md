@@ -477,30 +477,45 @@ it pauses a *model's own* tool call mid eve-session, durably, via
 are called directly, outside any eve-hosted agent run.
 
 Both go through `agent/lib/action-gate.ts`'s `ActionGate` — `(ctx:
-{toolName, headers}) => {allowed: true} | {allowed: false, reason}` —
-before either function that actually mutates GitHub
-(`resolveAddressedThreads`/`dismissStaleBotReviews`) is called. The
-default implementation, `sharedSecretGate()`, is **default-deny**: with
-`MCP_ACTION_TOKEN` unset, every call is denied, not silently allowed;
-set it, and a caller must send a matching `Authorization: Bearer
-<token>` header (compared with `node:crypto`'s `timingSafeEqual`, since
-a `!==` string compare would leak timing information proportional to
-the matching prefix). `ActionGate` is deliberately just a function
-type, not a fixed implementation, so a stronger check can replace it
-without touching the tools: investigated and explicitly ruled out for
-now was having [cloister](../cloister) host canonical-hours directly
-(cloister runs on Cloudflare Workers/`workerd` — sandboxed V8 isolates
-with no `child_process` — while eve produces a Node.js/Nitro server;
-different runtimes, confirmed against both codebases, not a fit) and
-reusing cloister's own Signet lease-certificate/attestation gate
-(cloister's gate covers the hop *into* its router; canonical-hours runs
-as its own external, non-workerd-resident process per its own
-`server.json` tenancy declaration — `shares_workerd_with: []` — so that
-gate never reaches this far). If a proxy in front of canonical-hours
-ever forwards a verifiable credential (a Signet lease cert or similar),
-a second `ActionGate` implementation can check it instead, with no
-change to `resolve_addressed_review_threads`/`dismiss_stale_bot_reviews`
-themselves.
+{toolName, headers, url?}) => {allowed: true} | {allowed: false, reason}`
+— before either function that actually mutates GitHub
+(`resolveAddressedThreads`/`dismissStaleBotReviews`) is called.
+`defaultActionGate()` picks the implementation: `notmeDpopGate()` when
+`NOTME_URL` is set, `sharedSecretGate()` otherwise — both **default-deny**.
+
+`sharedSecretGate()` compares `Authorization: Bearer <token>` against
+`MCP_ACTION_TOKEN` with `node:crypto`'s `timingSafeEqual` (a `!==`
+string compare would leak timing information proportional to the
+matching prefix) — simple, but a leaked token is indefinite access with
+nothing to revoke short of rotating the secret.
+
+`notmeDpopGate()` verifies a [notme](https://github.com/agentic-research/notme)-issued
+DPoP-bound access token (RFC 9449) via `agent/lib/vendor/notme-dpop.ts`
+(vendored from notme's own `gen/ts/dpop.ts` — not published as a
+package, no dependency mechanism to point at; see that file's header for
+provenance and the one behavioral gap patched on top: `verifyDPoPToken`
+doesn't check `aud` itself, so `notmeDpopGate` checks it manually against
+`VerifiedTokenClaims.aud` before allowing — otherwise a token minted for
+a *different* resource server would also pass here). DPoP, not notme's
+mTLS bridge-cert path: investigated and ruled out was mTLS client-cert
+verification, which needs either eve exposing raw TLS-server config
+(checked — it doesn't, zero hits for `requestCert`/`mTLS`/`TLS` across
+every `.md`/`.mdx` in the installed package's docs) or a fronting proxy
+terminating mTLS (none exists — canonical-hours has no deployment yet).
+DPoP sidesteps that entirely: it's an application-layer proof-of-possession
+mechanism built for exactly this constraint (ADR-006 in notme's repo:
+mobile browsers can't do mTLS with JS-generated keys either), so it needs
+no TLS-layer capability at all — the caller signs a proof JWT per
+request, the resource server verifies it against the access token's
+`cnf.jkt` binding, done in plain application code. Also ruled out:
+[cloister](../cloister) hosting canonical-hours directly (cloister runs
+on Cloudflare Workers/`workerd` — sandboxed V8 isolates with no
+`child_process` — while eve produces a Node.js/Nitro server; different
+runtimes, confirmed against both codebases, not a fit) and reusing
+cloister's own Signet lease-certificate/attestation gate (that gate
+covers the hop *into* cloister's router; canonical-hours runs as its own
+external, non-workerd-resident process per its own `server.json` tenancy
+declaration — `shares_workerd_with: []` — so it never reaches this far).
 
 The load-bearing property that makes a second trigger safe with zero
 new concurrency code: the in-process overlap guard
