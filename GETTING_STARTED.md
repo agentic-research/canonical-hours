@@ -65,11 +65,12 @@ does not already exist, installs frozen dependencies, and wires local git
 hooks when no existing hook manager is already present. It never
 overwrites an existing `.env`.
 
-The repo also commits pnpm's build-script allowlist for the native/dev
-toolchain packages that need postinstall scripts: `esbuild`, `workerd`,
-and `sharp` (`sharp` comes through Miniflare/Nitro/Eve image tooling, not
-canonical-hours application code). You should not need to run
-`pnpm approve-builds` on a fresh clone.
+The repo also commits pnpm's `allowBuilds` map in
+`pnpm-workspace.yaml` for the native/dev toolchain packages that need
+postinstall scripts: `esbuild`, `workerd`, and `sharp` (`sharp` comes
+through Miniflare/Nitro/Eve image tooling, not canonical-hours
+application code). You should not need to run `pnpm approve-builds` on a
+fresh clone.
 
 Fill in `.env` after setup:
 

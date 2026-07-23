@@ -10,6 +10,15 @@ describe("scaffold", () => {
     expect(pkg.engines.node).toBe(">=22");
   });
 
+  it("keeps pnpm build approvals in pnpm-workspace.yaml allowBuilds", () => {
+    const workspace = readFileSync("pnpm-workspace.yaml", "utf8");
+    expect(pkg.pnpm?.onlyBuiltDependencies).toBeUndefined();
+    expect(workspace).toContain("allowBuilds:");
+    for (const name of ["esbuild", "sharp", "workerd"]) {
+      expect(workspace).toContain(`  ${name}: true`);
+    }
+  });
+
   it("depends on eve, zod, @ai-sdk/anthropic, and the MCP SDK", () => {
     expect(pkg.dependencies.eve).toBeDefined();
     expect(pkg.dependencies.zod).toBeDefined();
