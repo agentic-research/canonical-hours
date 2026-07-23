@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { LifecycleEvent, Source } from "./source";
-import { MergedArtifact, mergeEvents } from "./merge";
-import type { FetchWindow } from "./fetch-window";
-import type { SnapshotSource, SnapshotValue } from "./snapshot";
-import { Board, BoardItem, BoardStore } from "./board";
+import { LifecycleEvent, Source } from "./source.js";
+import { MergedArtifact, mergeEvents } from "./merge.js";
+import type { FetchWindow } from "./fetch-window.js";
+import type { SnapshotSource, SnapshotValue } from "./snapshot.js";
+import { Board, BoardItem, BoardStore } from "./board.js";
 
 /**
  * The material-tick input handed to whatever invokes the summarizing LLM.

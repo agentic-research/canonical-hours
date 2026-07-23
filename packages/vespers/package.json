@@ -1,6 +1,6 @@
 {
   "name": "@agentic-research/vespers-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Portable tick/fold engine for canonical-hours board state.",
   "license": "Apache-2.0",
@@ -44,6 +44,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "test:package": "pnpm run build && node -e \"import('./dist/index.js').then(() => console.log('package import ok'))\"",
     "prepack": "pnpm run build",
     "test:workerd": "vitest run --config vitest.workerd.config.mts"
   },

@@ -12,8 +12,8 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       '@agentic-research/vespers-core':
-        specifier: workspace:*
-        version: link:packages/vespers
+        specifier: 0.1.1
+        version: 0.1.1
       '@ai-sdk/anthropic':
         specifier: ^4.0.16
         version: 4.0.16(zod@4.4.3)
@@ -93,6 +93,9 @@ packages:
 
   '@agentic-research/dpop@0.2.0':
     resolution: {integrity: sha512-c0l/kGk1LwosKbVv405n5i9O0IoAerwnIq3JW7jmkRO9Wnt0gcGST27RV89dsJV/GcxEf0UPoVWTzJnXjbKsiA==}
+
+  '@agentic-research/vespers-core@0.1.1':
+    resolution: {integrity: sha512-8xlcF96XRMVIQswY+O6E5MDiP9vYXa4I2myJ0f2mTaToxdKGm8ieWOMZBIAuRkSpls7m+YKV/MJwokh+Gmm7RQ==}
 
   '@ai-sdk/anthropic@4.0.16':
     resolution: {integrity: sha512-vyH4D6Auih5H2xvVzzh2ep5pbdWiaV7JDC+jHUE7zZJ5Kyv0TteLav4DrOgHzRuyv8ptfUSqFF6Y8//f/Ec0fQ==}
@@ -3118,6 +3121,10 @@ packages:
 snapshots:
 
   '@agentic-research/dpop@0.2.0': {}
+
+  '@agentic-research/vespers-core@0.1.1':
+    dependencies:
+      zod: 4.4.3
 
   '@ai-sdk/anthropic@4.0.16(zod@4.4.3)':
     dependencies:

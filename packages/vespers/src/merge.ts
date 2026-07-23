@@ -3,7 +3,7 @@ import {
   LifecycleEvent,
   LifecycleState,
   Observation,
-} from "./source";
+} from "./source.js";
 
 export interface MergedArtifact {
   artifact: Artifact;

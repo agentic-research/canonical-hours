@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { FetchWindow } from "./fetch-window";
+import type { FetchWindow } from "./fetch-window.js";
 
 export const LIFECYCLE_STATES = ["opened", "active", "needs_you", "resolved"] as const;
 export const LifecycleStateSchema = z.enum(LIFECYCLE_STATES);

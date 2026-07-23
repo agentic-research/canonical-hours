@@ -3,8 +3,8 @@ import {
   ClassificationSchema,
   LIFECYCLE_SORT_ORDER,
   LifecycleStateSchema,
-} from "./source";
-import { SnapshotValueSchema } from "./snapshot";
+} from "./source.js";
+import { SnapshotValueSchema } from "./snapshot.js";
 
 /** One activity entry inside a board item's `new_items`. */
 export const BoardActivitySchema = z.object({

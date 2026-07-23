@@ -41,7 +41,7 @@
   },
   "dependencies": {
     "@agentic-research/dpop": "^0.2.0",
-    "@agentic-research/vespers-core": "workspace:*",
+    "@agentic-research/vespers-core": "0.1.1",
     "@ai-sdk/anthropic": "^4.0.16",
     "@iarna/toml": "^2.2.5",
     "@modelcontextprotocol/sdk": "^1.29.0",

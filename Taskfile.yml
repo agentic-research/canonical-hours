@@ -15,7 +15,7 @@ tasks:
   deps:
     desc: Install dependencies from pnpm-lock.yaml (frozen)
     cmds:
-      - pnpm install --frozen-lockfile
+      - CI=true pnpm install --frozen-lockfile
     sources:
       - package.json
       - pnpm-lock.yaml
@@ -45,6 +45,12 @@ tasks:
     deps: [deps]
     cmds:
       - pnpm exec vitest
+
+  test:package:
+    desc: "Build @agentic-research/vespers-core and prove its published ESM entrypoint imports under Node."
+    deps: [deps]
+    cmds:
+      - pnpm --filter @agentic-research/vespers-core run test:package
 
   typecheck:
     desc: TypeScript type check (no emit)
@@ -93,11 +99,12 @@ tasks:
       - scripts/smells-baseline-safe
 
   check:
-    desc: "Fast gate — typecheck + test. Run this in the inner dev loop, and (once a CI workflow exists) in CI."
+    desc: "Fast gate — typecheck + package smoke + test. Run this before commit/push, and (once a CI workflow exists) in CI."
     deps: [deps]
     cmds:
       - task typecheck
       - task typecheck:vespers
+      - task test:package
       - task test
 
   ci:
