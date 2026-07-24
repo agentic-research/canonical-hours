@@ -420,31 +420,35 @@ configured in `[linear]`:
 Everything above this point is reachable two ways: the REST-shaped
 routes in `agent/channels/board.ts`/`tick.ts` (curl, humans, anything
 that just wants JSON or markdown over plain HTTP), and, additively, a
-real [MCP](https://modelcontextprotocol.io) server at `agent/channels/mcp.ts`.
-The REST routes aren't going anywhere — the MCP surface exists because
+real [MCP](https://modelcontextprotocol.io) server. The Eve/Nitro host
+implements that server in `agent/channels/mcp.ts`; the no-Eve Worker
+host implements the same four tool names in `worker/index.ts`. The REST
+routes aren't going anywhere — the MCP surface exists because
 canonical-hours is meant to be the general home for scheduled,
 repeatable agent tasks, not a PR-board-specific tool, and that class of
 capability needs to be consumable by other *agent* infrastructure, not
-just by whoever's willing to `curl` and parse JSON by hand. The
-concrete driver is [cloister](../cloister) — a v8-isolate hypervisor
-that bundles a set of MCP servers behind one endpoint for its own
-agents to call — which only knows how to consume MCP, not arbitrary
-REST shapes.
+just by whoever's willing to `curl` and parse JSON by hand. The concrete
+driver is [cloister](../cloister) — a v8-isolate hypervisor that bundles
+a set of MCP servers behind one endpoint for its own agents to call —
+which only knows how to consume MCP, not arbitrary REST shapes.
 
 ### The tools and the tick guard
 
-Only `trigger_tick` (and the cron) reach `runTick`; the two action tools
-mutate GitHub directly and never enter this path.
+Only the tick triggers (`trigger_tick`, `POST /tick`, and the cron)
+reach `runTick`; the two action tools mutate GitHub directly and never
+enter this path.
 
 ```mermaid
 graph LR
     CRON["cron<br/>(agent/schedules/pr-board.ts)"]
-    MCP["MCP trigger_tick<br/>(agent/channels/mcp.ts)"]
-    ENTRY["prBoardTick()"]
+    MCP["MCP trigger_tick<br/>(agent/channels/mcp.ts or worker/index.ts)"]
+    REST["POST /tick<br/>(agent/channels/tick.ts or worker/index.ts)"]
+    ENTRY["host tick entry<br/>(prBoardTick() or worker triggerTick())"]
     TICK["runTick()<br/>overlap guard: module-level running flag"]
 
     CRON --> ENTRY
     MCP --> ENTRY
+    REST --> ENTRY
     ENTRY --> TICK
 ```
 
@@ -456,13 +460,14 @@ graph LR
   programmatic caller needs. `board: null` (no tick has ever completed)
   is a successful result, not an error — the MCP analog of
   `board.ts`'s `404 {"error":"no board yet"}`.
-- **`trigger_tick`** (action) — calls `prBoardTick()` directly, the
-  identical entry point the cron schedule calls, and awaits the real
-  six-way `TickResult` (`skipped_overlap`, `skipped_quiet`, `all_clear`,
+- **`trigger_tick`** (action) — awaits the real six-way `TickResult`
+  (`skipped_overlap`, `skipped_quiet`, `all_clear`,
   `material_unchanged`, `material`, `degraded_fallback`) rather than
-  firing-and-forgetting. This is a second *trigger* for the same tick
-  logic, not a separate code path — `agent/lib/tick.ts`, `board.ts`,
-  and the cron schedule are untouched.
+  firing-and-forgetting. In the Eve host it calls `prBoardTick()`, the
+  identical entry point the cron schedule calls; in the Worker host it
+  constructs Worker-compatible sources and a Durable Object `BoardStore`
+  around the same portable `runTick()` kernel. This is a second
+  *trigger* for the same tick logic, not a separate lifecycle model.
 - **`resolve_addressed_review_threads`** (action) and
   **`dismiss_stale_bot_reviews`** (action) — the two mutating tools,
   covered in [Action tools and merge_ready](#action-tools-and-merge_ready)
@@ -489,8 +494,10 @@ Both go through `agent/lib/action-gate.ts`'s `ActionGate` — `(ctx:
 {toolName, headers, url?}) => {allowed: true} | {allowed: false, reason}`
 — before either function that actually mutates GitHub
 (`resolveAddressedThreads`/`dismissStaleBotReviews`) is called.
-`defaultActionGate()` picks the implementation: `notmeDpopGate()` when
-`NOTME_URL` is set, `sharedSecretGate()` otherwise — both **default-deny**.
+The Eve/Nitro host uses `defaultActionGate()`, while the Worker host uses
+`actionGateFromEnv(env)` so it can pass Worker bindings instead of
+reading `process.env`. Both select `notmeDpopGate()` when `NOTME_URL` is
+set, `sharedSecretGate()` otherwise, and both are **default-deny**.
 
 `sharedSecretGate()` compares `Authorization: Bearer <token>` against
 `MCP_ACTION_TOKEN` with a small runtime-neutral constant-time comparison
@@ -533,15 +540,26 @@ needs its own resource-server gate. The separate Worker host
 service binding, and it deliberately reuses the same application-layer
 `ActionGate`.
 
+This is distinct from rig's `globalOutbound` credential-injection
+design. notme/DPoP answers "may this caller invoke a mutating MCP
+action?"; rig's outbound layer answers "how does host code call
+GitHub/Linear/weather without handing plaintext provider credentials to
+agent/application code?" Today canonical-hours still accepts provider
+tokens as host env/bindings so the no-Node Worker migration stays small.
+Moving those outbound provider credentials behind rig/cloister is tracked
+separately (`canonical-hours-81723e`), not mixed into the MCP action-gate
+boundary.
+
 The load-bearing property that makes a second trigger safe with zero
-new concurrency code: the in-process overlap guard
+new concurrency code: the host-module overlap guard
 (`agent/lib/tick.ts`'s module-level `running` flag, see
 [What's verified](#whats-verified-and-whats-not)) is already
 trigger-source-agnostic — it doesn't know or care whether the caller
 was the cron schedule or an MCP client, only that at most one tick runs
-at a time in this process. If `trigger_tick` arrives while a cron-fired
-tick is mid-flight, `runTick()` returns `skipped_overlap` immediately,
-before any fetch or write — and the MCP tool surfaces that as a
+at a time inside that loaded module instance. If `trigger_tick` arrives
+while a cron-fired tick is mid-flight, `runTick()` returns
+`skipped_overlap` immediately, before any fetch or write — and the MCP
+tool surfaces that as a
 **successful** result (`isError` unset), not a failure: an overlapping
 tick is a defined, healthy outcome already first-class in the
 `TickResult` union, and the board still gets refreshed by whichever
@@ -604,8 +622,9 @@ GraphQL exposes no clean equivalent for a commit's changed-file set,
 which the "was this thread's file touched after the review" eligibility
 check needs. Both tools take their target PR as a call argument
 (`owner/repo#123` or a github.com PR URL, parsed by
-`agent/lib/pr-ref.ts`) and reuse `process.env.GITHUB_TOKEN` exactly as
-the tick already does — no new config surface.
+`agent/lib/pr-ref.ts`) and reuse the same host-provided `GITHUB_TOKEN`
+binding/env value the tick's GitHub adapter uses — no separate GitHub
+credential surface.
 
 ### Transport
 
@@ -616,10 +635,11 @@ stateless transport per request and hands it the incoming `Request`.
 the Nitro build (the same constraint that shaped `/board`/`/board/md`
 instead of `/board.json`; see [eve-api-notes.md](eve-api-notes.md)
 §3). The server runs **stateless JSON mode** — no SSE session stream —
-because neither tool needs one: `get_board` and `trigger_tick` are
-both single-request/single-response, and per-request `McpServer`
-construction needs no session affinity across calls. `GET /mcp`
-returns `405` deliberately; there is no stream to open in this mode.
+because every tool is single-request/single-response: read the board,
+trigger one tick, resolve addressed threads, or dismiss stale bot
+reviews. Per-request `McpServer` construction needs no session affinity
+across calls. `GET /mcp` returns `405` deliberately; there is no stream
+to open in this mode.
 
 ### `server.json` and tenancy
 
@@ -961,6 +981,23 @@ handling of this channel — that gap is closed below.
   works fully, `trigger_tick` correctly surfaces the dummy credentials
   as real failures rather than crashing.
 
+**Proven, via `@cloudflare/vitest-pool-workers` (canonical-hours-0fb36e /
+canonical-hours-0fb17f):**
+
+- The no-Eve Worker host (`worker/index.ts`) serves `GET /board`,
+  `GET /board/md`, `POST /tick`, and `POST /mcp` against a Durable
+  Object-backed board store. A local `trigger_tick` MCP call writes the
+  all-clear board and the HTTP board routes read that same state back.
+- Worker `tools/list` reports the same four tool names as the Eve MCP
+  host: `get_board`, `trigger_tick`,
+  `resolve_addressed_review_threads`, and `dismiss_stale_bot_reviews`.
+- The two review-mutating Worker tools are default-deny with no action
+  auth configured; the denial happens before any GitHub mutation path.
+- Worker source construction can be exercised with host-injected
+  dependencies: fake `fetch`/lectio call factories prove the GitHub,
+  Linear, weather, and lectio adapter paths can be built and called in
+  the Worker runtime without real API keys.
+
 **Proven, against cloister's real resolver (canonical-hours-fb3f87):**
 
 - `server.json` resolves cleanly through cloister's actual `task add` /
@@ -1018,13 +1055,15 @@ finding.
 - **Whether cloister can actually route a tool call to canonical-hours.**
   The resolve step is proven (see above) — the registry document's
   shape is right. What's not proven: `urlBinding` wired to a real
-  running instance, cloister's cluster actually up, and a real
-  `get_board`/`trigger_tick` call round-tripping through cloister and
-  back. Tracked as `canonical-hours-f17ca7`.
-- **fly.io and Vercel deployment themselves.** Deliberately deferred —
-  there is no CI workflow and no deployment configuration in this repo
-  yet. Everything above has only ever been exercised against a local
-  `eve dev` process with manually triggered ticks.
+  running Eve instance or `serviceBinding` wired to a deployed Worker
+  host, cloister's cluster actually up, and real calls to all four tools
+  round-tripping through cloister and back. Tracked as
+  `canonical-hours-f17ca7`.
+- **Production deployment itself.** Deliberately deferred — there is no
+  CI workflow and no production deployment configuration in this repo
+  yet for either the Eve/Nitro target or the Worker target. Everything
+  above has only ever been exercised against local `eve dev`,
+  direct-handler MCP tests, and local workerd/miniflare tests.
 
 Tracked as beads (`rsry_bead_search` against this repo, not visible via
 local `bd list` — see note below):
@@ -1039,6 +1078,9 @@ local `bd list` — see note below):
 - `canonical-hours-f17ca7` — wiring `urlBinding` and proving an actual
   tool call routes through cloister end to end (the resolve step is
   already proven, see above).
+- `canonical-hours-81723e` — moving provider credentials behind the
+  rig/cloister outbound-injection boundary instead of exposing them as
+  direct host env/bindings.
 
 (Aside for contributors: `bd list` in this repo currently reports zero
 issues even though the beads above exist and are correctly scoped —
