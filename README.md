@@ -1,10 +1,11 @@
 # canonical-hours
 
-canonical-hours is a standing [eve.dev](https://eve.dev) agent for
-scheduled operational checks and MCP-triggered durable status boards. It
+canonical-hours is a scheduled operational board for agentic work: it
 polls sources such as GitHub, lectio, Linear, and weather, folds their
-observations into one material board, and serves the result over HTTP/MCP
-without pushing or mutating anything on its own.
+observations into one durable board, and serves the result over HTTP/MCP.
+It has two local hosts today: an [eve.dev](https://eve.dev) / Nitro host
+for the standing agent surface, and a no-Eve Cloudflare Worker host for
+workerd/miniflare and the path toward cloister service bindings.
 
 The first board answers a concrete question: **"how are my PRs, and does
 anything need me?"** That PR board is the proof case, not the boundary.
@@ -14,8 +15,8 @@ snapshots, and the portable core lives in
 semantics can move into workerd/cloister/Durable Object/Wasm-style hosts
 without bringing along Eve or Node filesystem assumptions.
 
-In other words: canonical-hours is the standing host and integration
-surface; Vespers Core is the reusable kernel under it.
+In other words: canonical-hours is the integration surface and host
+wiring; Vespers Core is the reusable tick/fold kernel under it.
 
 **New here?** → [GETTING_STARTED.md](GETTING_STARTED.md) for the full
 setup, local run, and MCP-wiring walkthrough. The sections below are
@@ -25,13 +26,13 @@ reference material — expand what you need.
 <summary><strong>Status</strong></summary>
 
 Every tick path (all-clear, degraded-fallback, material/LLM-triaged)
-and the MCP surface run end to end against `eve dev`; the deterministic
-no-model path also runs directly as `task tick`, without starting an Eve
-chat session. A no-Eve workerd/miniflare host is also available via
-`task dev:worker`; it currently serves `GET /board`, `GET /board/md`,
-`POST /tick`, and the same four MCP tools as the Eve host, backed by a
-Durable Object board store. The review-mutating tools remain
-default-deny unless `MCP_ACTION_TOKEN` or `NOTME_URL` is configured. CI
+and the four-tool MCP surface run end to end against the Eve host; the
+deterministic no-model path also runs directly as `task tick`, without
+starting an Eve chat session. The no-Eve workerd/miniflare host is
+available via `task dev:worker`; it serves `GET /board`, `GET /board/md`,
+`POST /tick`, and the same four MCP tools, backed by a Durable Object
+board store. The review-mutating tools remain default-deny unless
+`MCP_ACTION_TOKEN` or `NOTME_URL` is configured. CI
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs typecheck
 + test on every push; the structural smell gate runs as its own
 workflow ([`smells.yml`](.github/workflows/smells.yml)). Runs locally

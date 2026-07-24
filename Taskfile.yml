@@ -1,10 +1,8 @@
 version: '3'
 
-# Golden path: local dev and (whenever a workflow is added) CI both use
-# these tasks. This repo has no CI workflow yet (see docs/ARCHITECTURE.md,
-# "What's verified, and what's not") — this Taskfile exists so that when
-# CI lands it wires straight into these same targets rather than
-# reinventing them in YAML, matching the convention in cloister/rosary/mache.
+# Golden path: local dev and CI both use these tasks, matching the
+# convention in cloister/rosary/mache. The GitHub Actions workflows call
+# into this Taskfile rather than reinventing the gate in YAML.
 
 tasks:
   default:
