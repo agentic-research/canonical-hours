@@ -13,10 +13,15 @@ The same tick/fold machinery also handles Linear issues and current-value
 snapshots, and the portable core lives in
 [`@agentic-research/vespers-core`](packages/vespers/README.md) so those
 semantics can move into workerd/cloister/Durable Object/Wasm-style hosts
-without bringing along Eve or Node filesystem assumptions.
+without bringing along Eve or Node filesystem assumptions. Provider-facing
+collection has its own portable boundary in
+[`@agentic-research/observer-core`](packages/observer/README.md): observers
+turn provider records into validated fact drafts without choosing storage or
+their eventual consumers.
 
 In other words: canonical-hours is the integration surface and host
-wiring; Vespers Core is the reusable tick/fold kernel under it.
+wiring; Observer Core is the provider-ingestion contract; Vespers Core is the
+reusable tick/fold kernel.
 
 **New here?** → [GETTING_STARTED.md](GETTING_STARTED.md) for the full
 setup, local run, and MCP-wiring walkthrough. The sections below are
@@ -114,6 +119,47 @@ a worked example tracing one PR through the whole pipeline — is in
 </details>
 
 <details>
+<summary><strong>Portable observers</strong></summary>
+
+[`@agentic-research/observer-core`](packages/observer/README.md) is the
+published, host-neutral SDK for GitHub, Linear, and future provider adapters.
+An observer owns provider-facing extraction, response validation, pagination,
+rate-limit interpretation, and normalization. Calling `observe()` returns a
+validated batch of `ObservationDraft` facts plus an optional proposed next
+cursor.
+
+The boundary is deliberately direct:
+
+- provider packages own fetching and normalization;
+- Observer Core validates fact metadata and provider-independent payloads;
+- the host owns credentials, scheduling, persistence, delivery, and retries;
+- the host commits the proposed cursor only after the corresponding facts are
+  durable.
+
+There is no provider-selected loader. That keeps the same observer usable
+directly by canonical-hours, through a Vespers projection, or inside a future
+Cloister workerd/OCI runtime. Cloister may later own the package repository and
+the authoritative receiving envelope without changing the npm package identity
+or making provider code depend on a consumer.
+
+Install it from npm:
+
+```sh
+pnpm add @agentic-research/observer-core
+```
+
+This monorepo consumes it through pnpm's `workspace:^` protocol. The package
+owns its repeatable workflow in `packages/observer/Taskfile.yml`; the root
+Taskfile imports that surface as `observer:*`, and `task check` composes
+`task observer:check`.
+
+See the [Observer Core README](packages/observer/README.md) for the complete
+TypeScript example, identity/provenance fields, Cap'n Proto schema, cursor
+semantics, and workerd verification contract.
+
+</details>
+
+<details>
 <summary><strong>MCP surface</strong></summary>
 
 canonical-hours is meant to be the general home for scheduled,
@@ -183,6 +229,11 @@ transport and tenancy details.
 <details>
 <summary><strong>Repo map</strong></summary>
 
+- `packages/observer` (`@agentic-research/observer-core`, a public pnpm
+  workspace package) — the portable provider-observer contract:
+  `Extractor`/`Transformer` protocols, validated `ObservationDraft` batches,
+  explicit proposed-cursor handoff, the cross-runtime Cap'n Proto schema, and
+  Node/workerd package tests. It never owns persistence or cursor commits.
 - `packages/vespers` (`@agentic-research/vespers-core`, a pnpm workspace package) — the
   portable tick/fold engine: the `Source`/`Artifact`/`Observation`/`LifecycleEvent`
   protocol, `mergeEvents`/`foldState`, `runTick`, the `Board` schema and
