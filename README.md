@@ -27,7 +27,10 @@ reference material — expand what you need.
 Every tick path (all-clear, degraded-fallback, material/LLM-triaged)
 and the MCP surface run end to end against `eve dev`; the deterministic
 no-model path also runs directly as `task tick`, without starting an Eve
-chat session. CI
+chat session. A no-Eve workerd/miniflare host is also available via
+`task dev:worker`; it currently serves `GET /board`, `GET /board/md`,
+`POST /tick`, and MCP `get_board` / `trigger_tick`, backed by a Durable
+Object board store. CI
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs typecheck
 + test on every push; the structural smell gate runs as its own
 workflow ([`smells.yml`](.github/workflows/smells.yml)). Runs locally
@@ -210,7 +213,13 @@ transport and tenancy details.
   and other MCP clients. The two action tools' mechanical eligibility
   lives in `agent/lib/{thread-resolution,bot-review-dismissal}.ts`,
   sharing `agent/lib/{pr-ref,github-graphql}.ts`. `agent/lib/action-gate.ts`
-  is the pluggable default-deny gate those two tools run through.
+	  is the pluggable default-deny gate those two tools run through.
+- `worker/index.ts`, `worker/wrangler.toml` — the workerd/miniflare host:
+  no Eve process, no model provider, Durable Object board persistence,
+  and a minimal MCP surface for `get_board` + `trigger_tick`. This is the
+  local/prototype path toward making canonical-hours a cloister
+  `serviceBinding`; `server.json` still describes the fuller Eve-hosted
+  MCP surface until the mutating action tools are ported.
 - `canonical-hours.toml`, `agent/lib/config.ts` — committed non-secret
   config (tick cron, weather location, GitHub GraphQL rate-limit
   backoff threshold, optional `[linear]` assignee + staleness thresholds).

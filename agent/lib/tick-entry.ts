@@ -66,6 +66,8 @@ export async function prBoardTick(runtime: InvokeAgentRuntime): Promise<TickResu
     snapshotSources,
     boardStore: nodeBoardStore,
     invokeAgent: createInvokeAgent(runtime),
+    quietHours: process.env.QUIET_HOURS,
+    quietTz: process.env.QUIET_TZ,
   });
   console.log(`[pr-board] tick result: ${result}`);
   return result;

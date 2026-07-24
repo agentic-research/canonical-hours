@@ -170,6 +170,23 @@ describe("runTick", () => {
     expect(await runTick(d)).toBe("skipped_quiet");
   });
 
+  it("quiet hours are host-injected, not read from process.env", async () => {
+    const originalQuietHours = process.env.QUIET_HOURS;
+    const originalQuietTz = process.env.QUIET_TZ;
+    process.env.QUIET_HOURS = "22-07";
+    process.env.QUIET_TZ = "UTC";
+    try {
+      const d = await deps({ sources: [fakeSource("lectio", [])] });
+      d.now = () => new Date("2026-07-17T23:30:00Z");
+      expect(await runTick(d)).toBe("all_clear");
+    } finally {
+      if (originalQuietHours === undefined) delete process.env.QUIET_HOURS;
+      else process.env.QUIET_HOURS = originalQuietHours;
+      if (originalQuietTz === undefined) delete process.env.QUIET_TZ;
+      else process.env.QUIET_TZ = originalQuietTz;
+    }
+  });
+
   it("a source event's extra.merge_ready flows through to the board PR entry", async () => {
     // No observations → opened → non-material, so runTick's templated path builds
     // the board via toBoardItem, exercising the extra → merge_ready passthrough end to end.

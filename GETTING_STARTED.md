@@ -140,6 +140,21 @@ The Eve dev prompt itself is still an LLM chat surface. In no-model
 mode, use `task tick` or the schedule and board routes above; typing
 messages at the prompt will still ask Eve for a model provider key.
 
+There is also a workerd/miniflare-local host for the no-Eve path:
+
+```sh
+task dev:worker
+```
+
+This serves `GET /board`, `GET /board/md`, `POST /tick`, and a minimal
+MCP endpoint at `/mcp` with `get_board` and `trigger_tick`. It does not
+invoke a model provider. It persists board state in a Durable Object and
+registers provider sources only when the corresponding env bindings are
+present, so a fresh local run can tick without API keys. Non-secret
+Worker config is env-based (`WEATHER_LOCATION`, `GITHUB_MIN_REMAINING`,
+`LINEAR_TEAM`, `LINEAR_USER_EMAIL`, or `CANONICAL_HOURS_CONFIG_JSON`);
+the Worker host intentionally does not parse `canonical-hours.toml`.
+
 If you want a Claude Code or Codex-powered prose pass without wiring an
 API key into canonical-hours, use one of the optional wrapper tasks:
 
@@ -172,6 +187,8 @@ loop on the client side.
 ```sh
 task test           # vitest run
 task typecheck       # tsc --noEmit
+task test:worker     # Miniflare smoke for the no-Eve Worker host
+task typecheck:worker # Worker host typecheck
 task test:package    # build @agentic-research/vespers-core and import its ESM entrypoint
 task codegen         # regenerate agent/lib/sources/generated/*.ts after editing graphql/sources/*.graphql
 task check           # typecheck + package smoke + test — run before commit/push

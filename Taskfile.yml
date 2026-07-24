@@ -56,6 +56,12 @@ tasks:
     cmds:
       - pnpm exec eve dev
 
+  dev:worker:
+    desc: "Start the experimental workerd/miniflare-local canonical-hours host (no Eve, no model; /board, /board/md, /mcp get_board + trigger_tick)."
+    deps: [deps]
+    cmds:
+      - pnpm exec wrangler dev --config worker/wrangler.toml --env-file .env --local --port ${PORT:-2000} --persist-to .wrangler/state --log-level warn
+
   tick:
     desc: "Run one canonical-hours tick from the shell, without starting Eve dev or requiring a model key."
     deps: [deps]
@@ -138,11 +144,23 @@ tasks:
     cmds:
       - pnpm exec tsc --noEmit -p packages/vespers/tsconfig.json
 
+  typecheck:worker:
+    desc: "TypeScript type check for the workerd/miniflare canonical-hours host."
+    deps: [deps]
+    cmds:
+      - pnpm exec tsc --noEmit -p worker/tsconfig.json
+
   test:workerd:
     desc: "Live @cloudflare/vitest-pool-workers smoke test proving @agentic-research/vespers-core runs under a simulated workerd runtime (canonical-hours-35893f) — not part of task check/ci yet: it spins up Miniflare and is slower/heavier than the rest of the suite. Run explicitly when touching packages/vespers."
     dir: packages/vespers
     cmds:
       - pnpm exec vitest run --config vitest.workerd.config.mts
+
+  test:worker:
+    desc: "Live Miniflare smoke for the canonical-hours Worker host: /board and MCP trigger_tick without Eve or a model provider."
+    deps: [deps]
+    cmds:
+      - pnpm exec vitest run --config worker/vitest.config.mts
 
   smells:
     desc: "Structural smell gate — fail only on findings beyond docs/smell-baseline.json (see docs/smell-gate.md). --tags=gate matches mache's own ratchet convention (the composite GitHub Action hardcodes the same selection) and excludes the min-0 firehose rules (cyclomatic_complexity, magic_int_in_comparison) that fire noise on every file rather than genuine structural debt. Requires the mache CLI."
@@ -162,13 +180,15 @@ tasks:
       - scripts/smells-baseline-safe
 
   check:
-    desc: "Fast gate — typecheck + package smoke + test. Run this before commit/push, and (once a CI workflow exists) in CI."
+    desc: "Fast gate — typecheck + package smoke + Node tests + Worker smoke. Run this before commit/push, and (once a CI workflow exists) in CI."
     deps: [deps]
     cmds:
       - task typecheck
       - task typecheck:vespers
+      - task typecheck:worker
       - task test:package
       - task test
+      - task test:worker
 
   ci:
     desc: "The exact gate CI runs (.github/workflows/ci.yml): typecheck + package smoke + test. The smell gate runs as its own workflow (.github/workflows/smells.yml, via mache's composite action) rather than through this task — see docs/smell-gate.md."

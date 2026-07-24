@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
 import { LifecycleEvent, Source } from "./source.js";
 import { MergedArtifact, mergeEvents } from "./merge.js";
 import type { FetchWindow } from "./fetch-window.js";
 import type { SnapshotSource, SnapshotValue } from "./snapshot.js";
 import { Board, BoardItem, BoardStore } from "./board.js";
+import { sha256Hex } from "./sha256.js";
 
 /**
  * The material-tick input handed to whatever invokes the summarizing LLM.
@@ -138,7 +138,7 @@ export function computeMaterialHash(material: MergedArtifact[]): string {
     return [m.artifact.uri, m.state, obsIdentity];
   });
   tuples.sort((a, b) => a[0].localeCompare(b[0]));
-  return createHash("sha256").update(JSON.stringify(tuples)).digest("hex");
+  return sha256Hex(JSON.stringify(tuples));
 }
 
 /**
@@ -157,8 +157,8 @@ export async function runTick(deps: TickDeps): Promise<TickResult> {
 
 async function runTickInner(deps: TickDeps): Promise<TickResult> {
   const now = (deps.now ?? (() => new Date()))();
-  const quietSpec = deps.quietHours ?? process.env.QUIET_HOURS;
-  const quietTz = deps.quietTz ?? process.env.QUIET_TZ ?? "UTC";
+  const quietSpec = deps.quietHours;
+  const quietTz = deps.quietTz ?? "UTC";
   if (inQuietHours(now, quietSpec, quietTz)) return "skipped_quiet";
 
   const windowHours = deps.windowHours ?? 72;
