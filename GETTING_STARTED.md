@@ -196,7 +196,8 @@ task test           # vitest run
 task typecheck       # tsc --noEmit
 task test:worker     # Miniflare smoke for the no-Eve Worker host
 task typecheck:worker # Worker host typecheck
-task test:package    # build @agentic-research/vespers-core and import its ESM entrypoint
+task vespers:check   # full @agentic-research/vespers-core package gate
+task observer:check  # full @agentic-research/observer-core package gate
 task codegen         # regenerate agent/lib/sources/generated/*.ts after editing graphql/sources/*.graphql
 task check           # typecheck + package smoke + test — run before commit/push
 task smells          # structural smell gate, ratcheted against docs/smell-baseline.json

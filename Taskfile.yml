@@ -1,8 +1,12 @@
 version: '3'
 
 includes:
-  release:
-    taskfile: ./tasks/release-ts.yml
+  vespers:
+    taskfile: ./packages/vespers
+    dir: ./packages/vespers
+  observer:
+    taskfile: ./packages/observer
+    dir: ./packages/observer
 
 # Golden path: local dev and CI both use these tasks, matching the
 # convention in cloister/rosary/mache. The GitHub Actions workflows call
@@ -18,20 +22,20 @@ tasks:
     desc: Install dependencies from pnpm-lock.yaml (frozen) and build local workspace packages
     cmds:
       - CI=true pnpm install --frozen-lockfile
-      - task build:vespers
+      - task vespers:build
+      - task observer:build
     sources:
       - package.json
       - pnpm-lock.yaml
+      - packages/observer/src/**/*.ts
+      - packages/observer/src/**/*.capnp
+      - packages/observer/tsconfig.build.json
       - packages/vespers/src/**/*.ts
       - packages/vespers/tsconfig.build.json
     generates:
       - node_modules/.modules.yaml
+      - packages/observer/dist/index.js
       - packages/vespers/dist/index.js
-
-  build:vespers:
-    desc: "Build @agentic-research/vespers-core package dist artifacts"
-    cmds:
-      - pnpm --filter @agentic-research/vespers-core run build
 
   setup:
     desc: "Fresh-clone bootstrap: prepare pnpm, create .env if missing, install deps, and wire local hooks when possible."
@@ -126,23 +130,6 @@ tasks:
     cmds:
       - pnpm exec vitest
 
-  test:package:
-    desc: "Build @agentic-research/vespers-core and prove its published ESM entrypoint imports under Node."
-    deps: [deps]
-    cmds:
-      - pnpm --filter @agentic-research/vespers-core run test:package
-
-  publish:vespers:
-    desc: "Build, test, and publish @agentic-research/vespers-core to npm using pnpm"
-    deps: [deps]
-    cmds:
-      - task: release:publish
-
-  bump:vespers:
-    desc: "Interactively bump version and tag @agentic-research/vespers-core"
-    cmds:
-      - task: release:bump
-
   typecheck:
     desc: TypeScript type check (no emit)
     deps: [deps]
@@ -160,23 +147,11 @@ tasks:
       - node scripts/fix-codegen-enum-default-casing.mjs agent/lib/sources/generated/github.ts
       - node scripts/fix-codegen-enum-default-casing.mjs agent/lib/sources/generated/linear.ts
 
-  typecheck:vespers:
-    desc: "TypeScript type check for packages/vespers under its own workers-typed tsconfig (no 'node' types) — the mechanical guardrail against an accidental Node-only import in the portable engine."
-    deps: [deps]
-    cmds:
-      - pnpm exec tsc --noEmit -p packages/vespers/tsconfig.json
-
   typecheck:worker:
     desc: "TypeScript type check for the workerd/miniflare canonical-hours host."
     deps: [deps]
     cmds:
       - pnpm exec tsc --noEmit -p worker/tsconfig.json
-
-  test:workerd:
-    desc: "Live @cloudflare/vitest-pool-workers smoke test proving @agentic-research/vespers-core runs under a simulated workerd runtime (canonical-hours-35893f) — not part of task check/ci yet: it spins up Miniflare and is slower/heavier than the rest of the suite. Run explicitly when touching packages/vespers."
-    dir: packages/vespers
-    cmds:
-      - pnpm exec vitest run --config vitest.workerd.config.mts
 
   test:worker:
     desc: "Live Miniflare smoke for the canonical-hours Worker host: /board and MCP trigger_tick without Eve or a model provider."
@@ -206,9 +181,9 @@ tasks:
     deps: [deps]
     cmds:
       - task typecheck
-      - task typecheck:vespers
+      - task vespers:check
+      - task observer:check
       - task typecheck:worker
-      - task test:package
       - task test
       - task test:worker
 

@@ -1,0 +1,58 @@
+version: '3'
+
+includes:
+  release:
+    taskfile: ../../tasks/release-ts.yml
+    vars:
+      TARGET_PKG: package.json
+      TAG_TEMPLATE: observer-core-v%s
+      PKG_NAME: "@agentic-research/observer-core"
+
+tasks:
+  build:
+    desc: "Build the portable observer-core package."
+    cmds:
+      - pnpm run build
+
+  typecheck:
+    desc: "Type-check observer-core with its host-neutral TypeScript configuration."
+    cmds:
+      - pnpm exec tsc --noEmit -p tsconfig.json
+
+  test:
+    desc: "Run observer-core unit and invariant tests."
+    cmds:
+      - pnpm run test
+
+  test:package:
+    desc: "Build observer-core and prove its published ESM entrypoint imports under Node."
+    cmds:
+      - task: release:test:package
+
+  test:workerd:
+    desc: "Run observer-core inside a simulated workerd runtime."
+    cmds:
+      - pnpm run test:workerd
+
+  check:
+    desc: "Run the deterministic observer-core package gate."
+    deps:
+      - typecheck
+      - test
+      - test:package
+      - test:workerd
+
+  publish:
+    desc: "Build, test, and publish observer-core to npm."
+    cmds:
+      - task: release:publish
+
+  ci-publish:
+    desc: "Build, test, and publish observer-core to npm from CI with provenance."
+    cmds:
+      - task: release:ci-publish
+
+  bump:
+    desc: "Interactively bump and tag observer-core."
+    cmds:
+      - task: release:bump

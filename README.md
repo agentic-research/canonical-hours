@@ -260,7 +260,8 @@ task brief:codex  # task tick + Codex CLI brief over board/board.md
 task dev          # eve dev — run locally; schedules work without a model key
 task build        # eve build
 task test         # vitest run
-task test:package # build vespers-core and import its published ESM entrypoint
+task vespers:check # vespers-core typecheck, tests, package import, and workerd smoke
+task observer:check # observer-core typecheck, tests, package import, and workerd smoke
 task typecheck    # tsc --noEmit
 task codegen      # regenerate agent/lib/sources/generated/*.ts after editing graphql/sources/*.graphql
 task check        # typecheck + package smoke + test — run before commit/push

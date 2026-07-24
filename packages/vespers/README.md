@@ -94,3 +94,16 @@ events to the protocol instead of rewriting the fold engine.
 
 The canonical Node/Eve integration lives in canonical-hours. This package is the
 portable kernel intended for downstream hosts, including workerd-style runtimes.
+
+## Verification
+
+From the repository root:
+
+```sh
+task vespers:check
+```
+
+This runs TypeScript compilation, unit tests, a published-entrypoint smoke test,
+and a live Miniflare/workerd portability test. The package owns those tasks in
+this directory's `Taskfile.yml`; the repository root imports them under the
+`vespers:` namespace.

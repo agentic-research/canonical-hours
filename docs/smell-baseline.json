@@ -4,7 +4,7 @@
     {
       "rule_id": "dead_code",
       "source_id": "agent/lib/action-gate.ts",
-      "count": 6
+      "count": 7
     },
     {
       "rule_id": "dead_code",
@@ -68,6 +68,16 @@
     },
     {
       "rule_id": "dead_code",
+      "source_id": "packages/observer/src/index.ts",
+      "count": 8
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "packages/observer/test/pipeline.test.ts",
+      "count": 2
+    },
+    {
+      "rule_id": "dead_code",
       "source_id": "packages/vespers/src/board.ts",
       "count": 3
     },
@@ -88,6 +98,11 @@
     },
     {
       "rule_id": "dead_code",
+      "source_id": "packages/vespers/src/sha256.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "dead_code",
       "source_id": "packages/vespers/src/snapshot.ts",
       "count": 2
     },
@@ -103,6 +118,11 @@
     },
     {
       "rule_id": "dead_code",
+      "source_id": "scripts/run-tick.ts",
+      "count": 5
+    },
+    {
+      "rule_id": "dead_code",
       "source_id": "test/github-source.test.ts",
       "count": 2
     },
@@ -115,6 +135,16 @@
       "rule_id": "dead_code",
       "source_id": "test/mcp-channel.test.ts",
       "count": 1
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "test/run-tick-script.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "dead_code",
+      "source_id": "worker/index.ts",
+      "count": 2
     },
     {
       "rule_id": "duplicate_code",
@@ -142,6 +172,16 @@
       "count": 1
     },
     {
+      "rule_id": "duplicate_code",
+      "source_id": "worker/index.ts",
+      "count": 2
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "agent/channels/mcp.ts",
+      "count": 1
+    },
+    {
       "rule_id": "duplicate_definitions",
       "source_id": "agent/lib/sources/generated/github-types.ts",
       "count": 37
@@ -160,6 +200,16 @@
       "rule_id": "duplicate_definitions",
       "source_id": "agent/lib/sources/generated/linear.ts",
       "count": 3
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "packages/observer/test/pipeline.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "packages/vespers/src/config.ts",
+      "count": 1
     },
     {
       "rule_id": "duplicate_definitions",
@@ -205,6 +255,11 @@
       "rule_id": "duplicate_definitions",
       "source_id": "test/weather-source.test.ts",
       "count": 2
+    },
+    {
+      "rule_id": "duplicate_definitions",
+      "source_id": "worker/index.ts",
+      "count": 1
     },
     {
       "rule_id": "fan_out_skew",
@@ -253,7 +308,22 @@
     },
     {
       "rule_id": "fan_out_skew",
+      "source_id": "packages/observer/src/index.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "packages/observer/test-workerd/portability.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
       "source_id": "packages/vespers/src/merge.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "packages/vespers/src/sha256.ts",
       "count": 1
     },
     {
@@ -283,6 +353,11 @@
     },
     {
       "rule_id": "fan_out_skew",
+      "source_id": "test/invoke-agent.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
       "source_id": "test/lectio-source.test.ts",
       "count": 1
     },
@@ -303,6 +378,11 @@
     },
     {
       "rule_id": "fan_out_skew",
+      "source_id": "test/run-tick-script.test.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
       "source_id": "test/server-json.test.ts",
       "count": 1
     },
@@ -315,6 +395,16 @@
       "rule_id": "fan_out_skew",
       "source_id": "test/tick.test.ts",
       "count": 17
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "worker/index.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "fan_out_skew",
+      "source_id": "worker/test/worker.test.ts",
+      "count": 4
     },
     {
       "rule_id": "god_file",
@@ -344,6 +434,11 @@
     {
       "rule_id": "long_function",
       "source_id": "packages/vespers/src/tick.ts",
+      "count": 1
+    },
+    {
+      "rule_id": "long_function",
+      "source_id": "worker/index.ts",
       "count": 1
     }
   ]
