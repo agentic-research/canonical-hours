@@ -57,7 +57,7 @@ tasks:
       - pnpm exec eve dev
 
   dev:worker:
-    desc: "Start the experimental workerd/miniflare-local canonical-hours host (no Eve, no model; /board, /board/md, /mcp get_board + trigger_tick)."
+    desc: "Start the workerd/miniflare-local canonical-hours host (no Eve, no model; /board, /board/md, /tick, and all four MCP tools)."
     deps: [deps]
     cmds:
       - pnpm exec wrangler dev --config worker/wrangler.toml --env-file .env --local --port ${PORT:-2000} --persist-to .wrangler/state --log-level warn

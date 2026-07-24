@@ -10,47 +10,33 @@ How to go from zero to a running canonical-hours PR board.
 - [Task](https://taskfile.dev) (`brew install go-task`) — every command in
   this doc runs through it, the same convention as
   [cloister](../cloister), [rosary](../rosary), and [mache](../mache).
-- A GitHub personal access token with `repo` scope (read access to your PRs
-  is enough; the two action tools below need write access to review
-  threads/reviews on repos you want them to mutate).
-- If you want the two mutating action tools (`resolve_addressed_review_threads`,
-  `dismiss_stale_bot_reviews`) reachable at all, an authorization gate —
-  they're default-deny (canonical-hours-49ba33): with neither option below
-  configured, every call is refused before it ever touches GitHub. This is
-  independent of `GITHUB_TOKEN`'s scope above — one controls whether a
-  caller may invoke the tool at all, the other controls whether the tool's
-  own GitHub call succeeds once invoked. You need both for the tools to
-  actually work end to end. Two gates, pick one:
-  - **`NOTME_URL`** (recommended) — verifies a
-    [notme](https://github.com/agentic-research/notme)-issued DPoP-bound
-    access token, real proof-of-possession: a captured header pair alone
-    is useless without the caller's private key. Optional
-    `NOTME_AUDIENCE` (defaults `"canonical-hours"`), `NOTME_ISSUER`
-    (omit to accept any issuer), and `NOTME_REQUIRED_SCOPE`.
-  - **`MCP_ACTION_TOKEN`** — a static shared secret; callers send a
-    matching `Authorization: Bearer` header. Simpler, no notme
-    dependency, but a leaked token is indefinite access.
-- Optionally, access to a running [lectio](../lectio) instance
-  (`LECTIO_URL` + `LECTIO_TOKEN`) — canonical-hours reads authored-PR
-  *activity* from lectio and review *verdicts* from GitHub, and merges
-  the two. lectio is optional like every other source: if it's absent or
-  misconfigured it degrades gracefully to a `degradations` entry, it is
-  no longer a hard boot requirement.
-- Optionally, a Linear API key (`LINEAR_API_KEY`) plus a `[linear]` table
-  in `canonical-hours.toml` — pulls your own stale or stuck Linear issues
-  onto the same board. Absent means the source is simply not registered.
-- Optionally, a private source package
-  (`CANONICAL_HOURS_PRIVATE_SOURCES_PATH` pointing at its built
-  `dist/index.js`) for source implementations that don't belong in this
-  public repo. Absent means the feature is simply off.
-- Optionally, an `ANTHROPIC_API_KEY` — only spent on ticks where
-  something material actually changed (see
-  [Architecture](docs/ARCHITECTURE.md) for the zero-LLM-call short
-  circuit); a quiet tick costs nothing. If the key is absent,
-  canonical-hours still runs locally and writes deterministic degraded
-  fallback boards for material ticks, without summaries. Set
-  `CANONICAL_HOURS_NO_MODEL=1` to force that mode even when your shell
-  happens to have a key.
+
+No API keys are required for the first local proof. With an empty `.env`,
+`task tick` still exercises the tick/fold/write path and records missing
+or unreachable sources as board degradations instead of crashing.
+
+Add credentials only for the integrations you want:
+
+- **GitHub**: `GITHUB_TOKEN`. Read access is enough for board data; the
+  two review-mutating tools need write access to review threads/reviews
+  on repos you want them to mutate.
+- **lectio**: `LECTIO_URL` + `LECTIO_TOKEN`. lectio contributes authored
+  PR activity; GitHub remains the hard source for review verdicts.
+- **Linear**: `LINEAR_API_KEY` plus a `[linear]` table in
+  `canonical-hours.toml`.
+- **Weather**: `WEATHER_API_KEY` plus a `[weather]` table in
+  `canonical-hours.toml`, or `WEATHER_LOCATION` for the Worker host.
+- **LLM summaries**: `ANTHROPIC_API_KEY`. Quiet/all-clear ticks spend no
+  model calls; set `CANONICAL_HOURS_NO_MODEL=1` to force deterministic
+  local mode even when the key exists.
+- **Mutating MCP tools**: either `NOTME_URL` (recommended, DPoP
+  proof-of-possession via [notme](https://github.com/agentic-research/notme))
+  or `MCP_ACTION_TOKEN` (static shared-secret fallback). This gate is
+  separate from `GITHUB_TOKEN`: the gate decides whether the caller may
+  invoke the tool, and GitHub decides whether the tool's mutation request
+  is allowed.
+- **Private sources**: `CANONICAL_HOURS_PRIVATE_SOURCES_PATH` pointing at
+  a built `dist/index.js`.
 
 ## Clone and configure
 
@@ -63,7 +49,8 @@ task setup
 `task setup` prepares pnpm, creates `.env` from `.env.example` if it
 does not already exist, installs frozen dependencies, and wires local git
 hooks when no existing hook manager is already present. It never
-overwrites an existing `.env`.
+overwrites an existing `.env`. After this, you can run `task tick`
+immediately even before filling in credentials.
 
 The repo also commits pnpm's `allowBuilds` map in
 `pnpm-workspace.yaml` for the native/dev toolchain packages that need
@@ -72,7 +59,7 @@ through Miniflare/Nitro/Eve image tooling, not canonical-hours
 application code). You should not need to run `pnpm approve-builds` on a
 fresh clone.
 
-Fill in `.env` after setup:
+Fill in `.env` when you want real provider data:
 
 ```
 LECTIO_URL=...
@@ -95,6 +82,17 @@ that file only holds non-secret config (tick cadence, weather location,
 GitHub GraphQL rate-limit backoff threshold, and the optional `[linear]`
 assignee + staleness thresholds). A missing file or table falls back to
 defaults; a malformed one fails the boot loudly, on purpose.
+
+If you use notme for the mutating MCP tools, the notme deployment must
+allow the audience canonical-hours verifies. By default canonical-hours
+expects `NOTME_AUDIENCE=canonical-hours`; either configure notme's
+`ALLOWED_AUDIENCES` accordingly or set both sides to the deployed
+resource URL you want to pin.
+
+Provider credentials are direct host env/bindings today. Moving GitHub,
+Linear, and weather credentials behind rig/cloister outbound injection is
+tracked separately so application code eventually names capabilities
+instead of seeing plaintext provider tokens.
 
 ## Run it locally
 
@@ -146,8 +144,8 @@ There is also a workerd/miniflare-local host for the no-Eve path:
 task dev:worker
 ```
 
-This serves `GET /board`, `GET /board/md`, `POST /tick`, and a minimal
-MCP endpoint at `/mcp` with the same four tools as the Eve host:
+This serves `GET /board`, `GET /board/md`, `POST /tick`, and an MCP
+endpoint at `/mcp` with the same four tools as the Eve host:
 `get_board`, `trigger_tick`, `resolve_addressed_review_threads`, and
 `dismiss_stale_bot_reviews`. It does not invoke a model provider. It
 persists board state in a Durable Object and registers provider sources
@@ -185,6 +183,11 @@ Register it with [cloister](../cloister) via `cloister add`, or hand any
 other MCP client the `server.json` at the repo root (or the remote URL
 directly: `http://<host>:<port>/mcp`) — no separate process, no polling
 loop on the client side.
+
+`server.json` points at the Eve/Nitro HTTP host by default and declares
+external tenancy for cloister. The Worker host exposes the same tool
+names for local workerd/miniflare and future service-binding deployment,
+but it is not the default registry target yet.
 
 ## Everyday commands
 
