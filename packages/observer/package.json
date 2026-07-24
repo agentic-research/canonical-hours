@@ -1,26 +1,21 @@
 {
-  "name": "@agentic-research/vespers-core",
-  "version": "0.1.2",
+  "name": "@agentic-research/observer-core",
+  "version": "0.1.0",
   "type": "module",
-  "description": "Portable tick/fold engine for canonical-hours board state.",
+  "description": "Portable provider-observer contracts with validated facts and explicit cursor handoff.",
   "license": "Apache-2.0",
   "keywords": [
-    "agent",
-    "agentic-workflows",
-    "board",
-    "durable-state",
-    "event-folding",
-    "issue-tracking",
-    "observability",
-    "tick",
-    "workflow"
+    "agentic-research",
+    "observer",
+    "event-stream",
+    "capnp"
   ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/agentic-research/canonical-hours.git",
-    "directory": "packages/vespers"
+    "directory": "packages/observer"
   },
-  "homepage": "https://github.com/agentic-research/canonical-hours/tree/main/packages/vespers",
+  "homepage": "https://github.com/agentic-research/canonical-hours/tree/main/packages/observer",
   "bugs": {
     "url": "https://github.com/agentic-research/canonical-hours/issues"
   },
@@ -36,7 +31,8 @@
   "files": [
     "README.md",
     "dist/**/*.d.ts",
-    "dist/**/*.js"
+    "dist/**/*.js",
+    "src/**/*.capnp"
   ],
   "publishConfig": {
     "access": "public",
