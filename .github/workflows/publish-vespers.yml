@@ -60,8 +60,7 @@ jobs:
           fi
           echo "version $PKG_VERSION matches tag"
 
-      - name: Publish
-        working-directory: packages/vespers
-        run: pnpm publish --no-git-checks --access public --provenance
+      - name: Publish via Taskfile
+        run: task release:ci-publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

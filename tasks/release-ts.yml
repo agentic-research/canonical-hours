@@ -1,0 +1,37 @@
+version: '3'
+
+# Reusable TypeScript Package Release Taskfile
+# Can be imported in root Taskfile.yml via `includes:`
+#
+# Variables:
+#   TARGET_PKG: Path to package.json to bump (default: packages/vespers/package.json)
+#   TAG_TEMPLATE: Git tag format (default: vespers-v%s)
+#   PKG_NAME: pnpm package name filter (default: @agentic-research/vespers-core)
+
+vars:
+  TARGET_PKG: '{{.TARGET_PKG | default "packages/vespers/package.json"}}'
+  TAG_TEMPLATE: '{{.TAG_TEMPLATE | default "vespers-v%s"}}'
+  PKG_NAME: '{{.PKG_NAME | default "@agentic-research/vespers-core"}}'
+
+tasks:
+  bump:
+    desc: "Interactively bump version, create git commit & release tag via bumpp"
+    cmds:
+      - pnpm exec bumpp {{.TARGET_PKG}} --tag "{{.TAG_TEMPLATE}}"
+
+  test:package:
+    desc: "Test and verify ESM package import before publish"
+    cmds:
+      - pnpm --filter {{.PKG_NAME}} run test:package
+
+  publish:
+    desc: "Build, test, and publish package to NPM (local CLI)"
+    cmds:
+      - pnpm --filter {{.PKG_NAME}} run test:package
+      - pnpm --filter {{.PKG_NAME}} publish --access public
+
+  ci-publish:
+    desc: "Build, test, and publish package to NPM from CI (with provenance)"
+    cmds:
+      - pnpm --filter {{.PKG_NAME}} run test:package
+      - pnpm --filter {{.PKG_NAME}} publish --no-git-checks --access public --provenance

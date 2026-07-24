@@ -1,5 +1,9 @@
 version: '3'
 
+includes:
+  release:
+    taskfile: ./tasks/release-ts.yml
+
 # Golden path: local dev and CI both use these tasks, matching the
 # convention in cloister/rosary/mache. The GitHub Actions workflows call
 # into this Taskfile rather than reinventing the gate in YAML.
@@ -132,8 +136,12 @@ tasks:
     desc: "Build, test, and publish @agentic-research/vespers-core to npm using pnpm"
     deps: [deps]
     cmds:
-      - task test:package
-      - pnpm --filter @agentic-research/vespers-core publish --access public
+      - task: release:publish
+
+  bump:vespers:
+    desc: "Interactively bump version and tag @agentic-research/vespers-core"
+    cmds:
+      - task: release:bump
 
   typecheck:
     desc: TypeScript type check (no emit)
