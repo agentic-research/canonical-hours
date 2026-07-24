@@ -29,8 +29,9 @@ and the MCP surface run end to end against `eve dev`; the deterministic
 no-model path also runs directly as `task tick`, without starting an Eve
 chat session. A no-Eve workerd/miniflare host is also available via
 `task dev:worker`; it currently serves `GET /board`, `GET /board/md`,
-`POST /tick`, and MCP `get_board` / `trigger_tick`, backed by a Durable
-Object board store. CI
+`POST /tick`, and the same four MCP tools as the Eve host, backed by a
+Durable Object board store. The review-mutating tools remain
+default-deny unless `MCP_ACTION_TOKEN` or `NOTME_URL` is configured. CI
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs typecheck
 + test on every push; the structural smell gate runs as its own
 workflow ([`smells.yml`](.github/workflows/smells.yml)). Runs locally
@@ -166,11 +167,12 @@ default-deny:
 `server.json` at the repo root is the registry document a cloister
 `cloister add` (or equivalent MCP client registration) consumes: it
 declares the `streamable-http` remote at `/mcp` with a configurable
-port, and marks the server `external`/untrusted tenancy — canonical-hours
-runs on Node via eve, not inside a v8 isolate, so it can't be
-co-located with the hypervisor and shouldn't be trusted as if it were.
-To point a client at a running instance, register the deployed
-`server.json` (or hand the client the remote URL directly:
+port. The default registry target is still the Eve/Nitro host, so it is
+marked `external`/untrusted tenancy; the no-Eve Worker host exposes the
+same tool names for local workerd/miniflare and future cloister
+service-binding deployments, but it is not yet the published registry
+target. To point a client at a running instance, register the deployed
+`server.json` or hand the client the remote URL directly:
 `http://<host>:<port>/mcp`). See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-mcp-surface) for the
 transport and tenancy details.
@@ -213,13 +215,15 @@ transport and tenancy details.
   and other MCP clients. The two action tools' mechanical eligibility
   lives in `agent/lib/{thread-resolution,bot-review-dismissal}.ts`,
   sharing `agent/lib/{pr-ref,github-graphql}.ts`. `agent/lib/action-gate.ts`
-	  is the pluggable default-deny gate those two tools run through.
+  is the pluggable default-deny gate those two tools run through.
 - `worker/index.ts`, `worker/wrangler.toml` — the workerd/miniflare host:
   no Eve process, no model provider, Durable Object board persistence,
-  and a minimal MCP surface for `get_board` + `trigger_tick`. This is the
-  local/prototype path toward making canonical-hours a cloister
-  `serviceBinding`; `server.json` still describes the fuller Eve-hosted
-  MCP surface until the mutating action tools are ported.
+  and the same four-tool MCP surface as the Eve host. The mutating action
+  tools reuse `agent/lib/action-gate.ts`, so notme DPoP and the
+  shared-secret fallback behave consistently across both hosts. This is
+  the local/prototype path toward making canonical-hours a cloister
+  `serviceBinding`; `server.json` still describes the Eve-hosted remote
+  until the Worker deployment target is formalized.
 - `canonical-hours.toml`, `agent/lib/config.ts` — committed non-secret
   config (tick cron, weather location, GitHub GraphQL rate-limit
   backoff threshold, optional `[linear]` assignee + staleness thresholds).

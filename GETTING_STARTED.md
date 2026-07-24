@@ -147,13 +147,17 @@ task dev:worker
 ```
 
 This serves `GET /board`, `GET /board/md`, `POST /tick`, and a minimal
-MCP endpoint at `/mcp` with `get_board` and `trigger_tick`. It does not
-invoke a model provider. It persists board state in a Durable Object and
-registers provider sources only when the corresponding env bindings are
-present, so a fresh local run can tick without API keys. Non-secret
-Worker config is env-based (`WEATHER_LOCATION`, `GITHUB_MIN_REMAINING`,
-`LINEAR_TEAM`, `LINEAR_USER_EMAIL`, or `CANONICAL_HOURS_CONFIG_JSON`);
-the Worker host intentionally does not parse `canonical-hours.toml`.
+MCP endpoint at `/mcp` with the same four tools as the Eve host:
+`get_board`, `trigger_tick`, `resolve_addressed_review_threads`, and
+`dismiss_stale_bot_reviews`. It does not invoke a model provider. It
+persists board state in a Durable Object and registers provider sources
+only when the corresponding env bindings are present, so a fresh local
+run can tick without API keys. The review-mutating tools still require
+`MCP_ACTION_TOKEN` or notme DPoP (`NOTME_URL`) before they touch GitHub.
+Non-secret Worker config is env-based (`WEATHER_LOCATION`,
+`GITHUB_MIN_REMAINING`, `LINEAR_TEAM`, `LINEAR_USER_EMAIL`, or
+`CANONICAL_HOURS_CONFIG_JSON`); the Worker host intentionally does not
+parse `canonical-hours.toml`.
 
 If you want a Claude Code or Codex-powered prose pass without wiring an
 API key into canonical-hours, use one of the optional wrapper tasks:

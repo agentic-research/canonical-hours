@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
 import { verifyDPoPToken } from "@agentic-research/dpop";
 
 /** Structurally compatible with the MCP SDK's IsomorphicHeaders — declared
@@ -28,6 +27,14 @@ export type ActionGateVerdict = { allowed: true } | { allowed: false; reason: st
  */
 export type ActionGate = (ctx: ActionGateContext) => Promise<ActionGateVerdict> | ActionGateVerdict;
 
+export interface ActionGateEnv {
+  MCP_ACTION_TOKEN?: string;
+  NOTME_URL?: string;
+  NOTME_AUDIENCE?: string;
+  NOTME_ISSUER?: string;
+  NOTME_REQUIRED_SCOPE?: string;
+}
+
 function headerValue(headers: HeaderLookup, name: string): string | undefined {
   const lower = name.toLowerCase();
   for (const [key, value] of Object.entries(headers)) {
@@ -39,9 +46,12 @@ function headerValue(headers: HeaderLookup, name: string): string | undefined {
 /** Constant-time compare — a bearer token is a secret, and `!==` leaks
  * timing information proportional to the matching prefix length. */
 function safeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
+  const max = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < max; i += 1) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
 }
 
 const BEARER_RE = /^Bearer\s+(.+)$/i;
@@ -56,7 +66,7 @@ const BEARER_RE = /^Bearer\s+(.+)$/i;
  * separate mechanism that covers that path instead.
  */
 export function sharedSecretGate(
-  expectedToken: string | undefined = process.env.MCP_ACTION_TOKEN,
+  expectedToken: string | undefined,
 ): ActionGate {
   return ({ toolName, headers }) => {
     if (!expectedToken) {
@@ -78,7 +88,7 @@ const DPOP_AUTH_RE = /^DPoP\s+(.+)$/i;
 
 export interface NotmeDpopGateOptions {
   /** notme's JWKS endpoint (e.g. "https://auth.notme.bot/.well-known/jwks.json").
-   * Defaults to `${NOTME_URL}/.well-known/jwks.json` when NOTME_URL is set. */
+   * Use `actionGateFromEnv` to derive this from NOTME_URL at the host boundary. */
   jwksUrl?: string;
   /**
    * Expected `aud` claim — REQUIRED by the vendored `verifyDPoPToken` itself
@@ -119,8 +129,7 @@ export interface NotmeDpopGateOptions {
  * rejected once its 60s freshness window elapsed, not immediately.
  */
 export function notmeDpopGate(opts: NotmeDpopGateOptions): ActionGate {
-  const jwksUrl =
-    opts.jwksUrl ?? (process.env.NOTME_URL ? `${process.env.NOTME_URL}/.well-known/jwks.json` : undefined);
+  const jwksUrl = opts.jwksUrl;
   return async ({ toolName, headers, url }) => {
     if (!jwksUrl && !opts.publicKey) {
       return {
@@ -195,18 +204,32 @@ const seenJtiTracker = (() => {
 })();
 
 /**
- * Picks the configured gate: `notmeDpopGate` when `NOTME_URL` is set,
- * `sharedSecretGate` otherwise. Not a breaking migration — notme is
- * "experimental, not audited" per its own README, so the static-secret
- * path stays the default until a deployment opts in explicitly.
+ * Picks the configured gate from a host-provided env object: `notmeDpopGate`
+ * when `NOTME_URL` is set, `sharedSecretGate` otherwise. Not a breaking
+ * migration — notme is "experimental, not audited" per its own README, so the
+ * static-secret path stays the default until a deployment opts in explicitly.
  */
-export function defaultActionGate(): ActionGate {
-  if (process.env.NOTME_URL) {
+export function actionGateFromEnv(env: ActionGateEnv): ActionGate {
+  const notmeUrl = env.NOTME_URL?.trim();
+  if (notmeUrl) {
+    const base = notmeUrl.replace(/\/+$/, "");
     return notmeDpopGate({
-      audience: process.env.NOTME_AUDIENCE ?? "canonical-hours",
-      issuer: process.env.NOTME_ISSUER,
-      requiredScope: process.env.NOTME_REQUIRED_SCOPE,
+      jwksUrl: `${base}/.well-known/jwks.json`,
+      audience: env.NOTME_AUDIENCE ?? "canonical-hours",
+      issuer: env.NOTME_ISSUER,
+      requiredScope: env.NOTME_REQUIRED_SCOPE,
     });
   }
-  return sharedSecretGate();
+  return sharedSecretGate(env.MCP_ACTION_TOKEN);
+}
+
+/**
+ * Node/Eve convenience wrapper around `actionGateFromEnv`. In runtimes where
+ * `process` is absent, this safely becomes default-deny instead of throwing
+ * during module evaluation.
+ */
+export function defaultActionGate(): ActionGate {
+  const env =
+    (globalThis as typeof globalThis & { process?: { env?: ActionGateEnv } }).process?.env ?? {};
+  return actionGateFromEnv(env);
 }

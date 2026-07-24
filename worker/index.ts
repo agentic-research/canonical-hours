@@ -11,9 +11,13 @@ import {
 } from "@agentic-research/vespers-core";
 import type { SnapshotSource, Source } from "@agentic-research/vespers-core";
 import { GithubSource } from "../agent/lib/sources/github";
-import { LectioSource, createMcpLectioCall } from "../agent/lib/sources/lectio";
+import { LectioSource, createMcpLectioCall, type LectioCall } from "../agent/lib/sources/lectio";
 import { LinearSource } from "../agent/lib/sources/linear";
 import { WeatherSource } from "../agent/lib/sources/weather";
+import { actionGateFromEnv, type HeaderLookup } from "../agent/lib/action-gate";
+import { dismissStaleBotReviews } from "../agent/lib/bot-review-dismissal";
+import { parsePrRef } from "../agent/lib/pr-ref";
+import { resolveAddressedThreads } from "../agent/lib/thread-resolution";
 
 interface Env {
   CH_BOARD: DurableObjectNamespace<CanonicalHoursBoardObject>;
@@ -29,6 +33,11 @@ interface Env {
   WEATHER_LOCATION?: string;
   QUIET_HOURS?: string;
   QUIET_TZ?: string;
+  MCP_ACTION_TOKEN?: string;
+  NOTME_URL?: string;
+  NOTME_AUDIENCE?: string;
+  NOTME_ISSUER?: string;
+  NOTME_REQUIRED_SCOPE?: string;
 }
 
 function json(value: unknown, init: ResponseInit = {}): Response {
@@ -90,15 +99,28 @@ class DurableObjectBoardStore implements BoardStore {
   }
 }
 
-function buildSources(env: Env, config: Config): { sources: Source[]; snapshotSources: SnapshotSource[] } {
+interface WorkerSourceDeps {
+  fetchImpl?: typeof fetch;
+  lectioCallFactory?: (url: string, token: string) => LectioCall;
+  now?: () => Date;
+}
+
+export function buildSources(
+  env: Omit<Env, "CH_BOARD">,
+  config: Config,
+  deps: WorkerSourceDeps = {},
+): { sources: Source[]; snapshotSources: SnapshotSource[] } {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const lectioCallFactory = deps.lectioCallFactory ?? createMcpLectioCall;
+  const now = deps.now ?? (() => new Date());
   const sources: Source[] = [];
   const snapshotSources: SnapshotSource[] = [];
 
   if (env.LECTIO_URL?.trim()) {
-    sources.push(new LectioSource(createMcpLectioCall(env.LECTIO_URL, env.LECTIO_TOKEN ?? "")));
+    sources.push(new LectioSource(lectioCallFactory(env.LECTIO_URL, env.LECTIO_TOKEN ?? "")));
   }
   if (env.GITHUB_TOKEN?.trim()) {
-    sources.push(new GithubSource(env.GITHUB_TOKEN, fetch, () => new Date(), config.github.min_remaining));
+    sources.push(new GithubSource(env.GITHUB_TOKEN, fetchImpl, now, config.github.min_remaining));
   }
   if (env.LINEAR_API_KEY?.trim() && config.linear) {
     sources.push(
@@ -106,11 +128,11 @@ function buildSources(env: Env, config: Config): { sources: Source[]; snapshotSo
         triageStaleDays: config.linear.triage_stale_days,
         triageAbandonedDays: config.linear.triage_abandoned_days,
         todoStaleDays: config.linear.todo_stale_days,
-      }),
+      }, fetchImpl, now),
     );
   }
   if (env.WEATHER_API_KEY?.trim() && config.weather) {
-    snapshotSources.push(new WeatherSource(env.WEATHER_API_KEY, config.weather.location));
+    snapshotSources.push(new WeatherSource(env.WEATHER_API_KEY, config.weather.location, fetchImpl));
   }
 
   return { sources, snapshotSources };
@@ -165,6 +187,103 @@ async function triggerTick(env: Env): Promise<TickResult> {
   });
 }
 
+function headersFromRequest(headers: Headers): HeaderLookup {
+  const out: HeaderLookup = {};
+  headers.forEach((value, key) => {
+    out[key] = value;
+  });
+  return out;
+}
+
+function gateUrl(url: URL): string {
+  return `${url.origin}${url.pathname}`;
+}
+
+function mcpToolText(id: string | number | null | undefined, textValue: string, structuredContent?: unknown): Response {
+  return json({
+    jsonrpc: "2.0",
+    id: id ?? null,
+    result: {
+      content: [{ type: "text", text: textValue }],
+      ...(structuredContent === undefined ? {} : { structuredContent }),
+    },
+  });
+}
+
+function mcpToolError(id: string | number | null | undefined, textValue: string): Response {
+  return json({
+    jsonrpc: "2.0",
+    id: id ?? null,
+    result: {
+      content: [{ type: "text", text: textValue }],
+      isError: true,
+    },
+  });
+}
+
+function stringArg(args: Record<string, unknown> | undefined, name: string): string | undefined {
+  const value = args?.[name];
+  return typeof value === "string" ? value : undefined;
+}
+
+async function handleResolveAddressedReviewThreads(
+  req: Request,
+  env: Env,
+  id: string | number | null | undefined,
+  args: Record<string, unknown> | undefined,
+): Promise<Response> {
+  const verdict = await actionGateFromEnv(env)({
+    toolName: "resolve_addressed_review_threads",
+    headers: headersFromRequest(req.headers),
+    url: gateUrl(new URL(req.url)),
+  });
+  if (!verdict.allowed) return mcpToolError(id, `denied: ${verdict.reason}`);
+
+  const pr = stringArg(args, "pr");
+  if (!pr) return mcpToolError(id, 'invalid input: "pr" must be a string');
+  if (!env.GITHUB_TOKEN?.trim()) return mcpToolError(id, "GITHUB_TOKEN is not configured");
+
+  try {
+    const result = await resolveAddressedThreads(parsePrRef(pr), env.GITHUB_TOKEN, fetch);
+    return mcpToolText(
+      id,
+      `resolved ${result.resolved.length}, skipped ${result.skipped.length}, failed ${result.failed.length}`,
+      { ...result },
+    );
+  } catch (err) {
+    return mcpToolError(id, err instanceof Error ? err.message : String(err));
+  }
+}
+
+async function handleDismissStaleBotReviews(
+  req: Request,
+  env: Env,
+  id: string | number | null | undefined,
+  args: Record<string, unknown> | undefined,
+): Promise<Response> {
+  const verdict = await actionGateFromEnv(env)({
+    toolName: "dismiss_stale_bot_reviews",
+    headers: headersFromRequest(req.headers),
+    url: gateUrl(new URL(req.url)),
+  });
+  if (!verdict.allowed) return mcpToolError(id, `denied: ${verdict.reason}`);
+
+  const pr = stringArg(args, "pr");
+  if (!pr) return mcpToolError(id, 'invalid input: "pr" must be a string');
+  if (!env.GITHUB_TOKEN?.trim()) return mcpToolError(id, "GITHUB_TOKEN is not configured");
+
+  try {
+    const result = await dismissStaleBotReviews(parsePrRef(pr), env.GITHUB_TOKEN, fetch);
+    return mcpToolText(
+      id,
+      `dismissed ${result.dismissed.length}, skipped ${result.skipped.length}, failed ${result.failed.length}`,
+      { ...result },
+    );
+  } catch (err) {
+    return mcpToolError(id, err instanceof Error ? err.message : String(err));
+  }
+}
+
 async function handleMcp(req: Request, env: Env): Promise<Response> {
   if (req.method !== "POST") return new Response(null, { status: 405 });
   const body = (await req.json()) as {
@@ -189,6 +308,26 @@ async function handleMcp(req: Request, env: Env): Promise<Response> {
             name: "trigger_tick",
             description: "Run one no-model canonical-hours tick in workerd.",
             inputSchema: { type: "object", properties: {} },
+          },
+          {
+            name: "resolve_addressed_review_threads",
+            description:
+              "Resolve unresolved GitHub PR review threads whose file changed after the originating review. Mutates GitHub and requires action auth.",
+            inputSchema: {
+              type: "object",
+              properties: { pr: { type: "string" } },
+              required: ["pr"],
+            },
+          },
+          {
+            name: "dismiss_stale_bot_reviews",
+            description:
+              "Dismiss stale CHANGES_REQUESTED reviews from bot accounts after a later fix commit. Mutates GitHub and requires action auth.",
+            inputSchema: {
+              type: "object",
+              properties: { pr: { type: "string" } },
+              required: ["pr"],
+            },
           },
         ],
       },
@@ -221,6 +360,12 @@ async function handleMcp(req: Request, env: Env): Promise<Response> {
         structuredContent: { result },
       },
     });
+  }
+  if (body.params?.name === "resolve_addressed_review_threads") {
+    return handleResolveAddressedReviewThreads(req, env, body.id, body.params.arguments);
+  }
+  if (body.params?.name === "dismiss_stale_bot_reviews") {
+    return handleDismissStaleBotReviews(req, env, body.id, body.params.arguments);
   }
 
   return json({

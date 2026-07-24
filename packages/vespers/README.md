@@ -44,13 +44,35 @@ Lectio, weather, or private registries. `BoardStore` is the one storage seam:
 bring your own filesystem, KV, Durable Object, database, or in-memory adapter.
 
 ```ts
+let board = null;
+const boardStore: BoardStore = {
+  async read() {
+    return board;
+  },
+  async write(next) {
+    board = BoardSchema.parse(next);
+  },
+};
+
 const result = await runTick({
   sources,
-  boardStore,
   now: new Date(),
+  priority: ["github", "linear"],
+  boardStore,
+  invokeAgent: async ({ merged, freshness, degradations, window }) => {
+    await boardStore.write({
+      generated_at: new Date().toISOString(),
+      tick_status: "ok",
+      window,
+      freshness,
+      degradations,
+      items: [],
+    });
+  },
 });
 
-console.log(renderBoardMd(BoardSchema.parse(result.board)));
+console.log(result);
+console.log(board ? renderBoardMd(board) : "No board written");
 ```
 
 ## Exports

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { sharedSecretGate, notmeDpopGate } from "../agent/lib/action-gate";
+import { actionGateFromEnv, sharedSecretGate, notmeDpopGate } from "../agent/lib/action-gate";
 import { computeJwkThumbprint } from "@agentic-research/dpop";
 
 describe("sharedSecretGate", () => {
@@ -46,6 +46,23 @@ describe("sharedSecretGate", () => {
     const gate = sharedSecretGate("s3cret");
     const verdict = await gate({ toolName: "t", headers: { authorization: ["Bearer s3cret"] } });
     expect(verdict).toEqual({ allowed: true });
+  });
+});
+
+describe("actionGateFromEnv", () => {
+  it("uses the injected shared-secret env without reading process.env defaults", async () => {
+    const gate = actionGateFromEnv({ MCP_ACTION_TOKEN: "s3cret" });
+    const verdict = await gate({ toolName: "t", headers: { authorization: "Bearer s3cret" } });
+    expect(verdict).toEqual({ allowed: true });
+  });
+
+  it("uses notme DPoP when a notme URL is injected", async () => {
+    const gate = actionGateFromEnv({ NOTME_URL: "https://auth.notme.bot", NOTME_AUDIENCE: "canonical-hours-test" });
+    const verdict = await gate({ toolName: "t", headers: {}, url: URL_ });
+    expect(verdict).toEqual({
+      allowed: false,
+      reason: "missing Authorization: DPoP <token> or DPoP <proof> header",
+    });
   });
 });
 

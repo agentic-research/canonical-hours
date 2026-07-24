@@ -493,10 +493,10 @@ Both go through `agent/lib/action-gate.ts`'s `ActionGate` — `(ctx:
 `NOTME_URL` is set, `sharedSecretGate()` otherwise — both **default-deny**.
 
 `sharedSecretGate()` compares `Authorization: Bearer <token>` against
-`MCP_ACTION_TOKEN` with `node:crypto`'s `timingSafeEqual` (a `!==`
-string compare would leak timing information proportional to the
-matching prefix) — simple, but a leaked token is indefinite access with
-nothing to revoke short of rotating the secret.
+`MCP_ACTION_TOKEN` with a small runtime-neutral constant-time comparison
+(a `!==` string compare would leak timing information proportional to
+the matching prefix) — simple, but a leaked token is indefinite access
+with nothing to revoke short of rotating the secret.
 
 `notmeDpopGate()` verifies a [notme](https://github.com/agentic-research/notme)-issued
 DPoP-bound access token (RFC 9449) via the public npmjs
@@ -510,9 +510,10 @@ consumer that had separately hand-rolled the same checks — could
 delete its own copy too, rather than three repos maintaining parallel
 versions of the same hardening logic. `notmeDpopGate`'s own replay hook
 now defaults to an in-memory jti tracker (`seenJtiTracker` in
-`action-gate.ts`) — closes what used to be a documented gap, real for
-this repo's actual deployment shape (one long-lived Node process, not
-stateless-per-request). DPoP, not notme's
+`action-gate.ts`) — closes what used to be a documented gap for each
+running host instance. A future deployed Worker should promote that hook
+to a Durable Object or KV-backed single-use ledger if it needs replay
+state to survive isolate/process restarts. DPoP, not notme's
 mTLS bridge-cert path: investigated and ruled out was mTLS client-cert
 verification, which needs either eve exposing raw TLS-server config
 (checked — it doesn't, zero hits for `requestCert`/`mTLS`/`TLS` across
@@ -523,15 +524,14 @@ mechanism built for exactly this constraint (ADR-006 in notme's repo:
 mobile browsers can't do mTLS with JS-generated keys either), so it needs
 no TLS-layer capability at all — the caller signs a proof JWT per
 request, the resource server verifies it against the access token's
-`cnf.jkt` binding, done in plain application code. Also ruled out:
-[cloister](../cloister) hosting canonical-hours directly (cloister runs
-on Cloudflare Workers/`workerd` — sandboxed V8 isolates with no
-`child_process` — while eve produces a Node.js/Nitro server; different
-runtimes, confirmed against both codebases, not a fit) and reusing
-cloister's own Signet lease-certificate/attestation gate (that gate
-covers the hop *into* cloister's router; canonical-hours runs as its own
-external, non-workerd-resident process per its own `server.json` tenancy
-declaration — `shares_workerd_with: []` — so it never reaches this far).
+`cnf.jkt` binding, done in plain application code. Also ruled out for the
+Eve/Nitro host: reusing cloister's own Signet lease-certificate/
+attestation gate. That gate covers the hop *into* cloister's router; the
+default `server.json` target remains an external Eve process, so it still
+needs its own resource-server gate. The separate Worker host
+(`worker/index.ts`) is the path toward a future co-located cloister
+service binding, and it deliberately reuses the same application-layer
+`ActionGate`.
 
 The load-bearing property that makes a second trigger safe with zero
 new concurrency code: the in-process overlap guard
@@ -634,12 +634,11 @@ resolves. It declares:
   it per deployment rather than the document hardcoding one.
 - `_meta."art.cloister/v1".tenancy.default_mode: "external"`,
   `trusted_tier: false`. This is a structural default, not a policy
-  preference: canonical-hours runs on Node via eve — it depends on
-  Node builtins and npm packages that aren't v8-isolate/Workers
-  compatible — so it cannot be co-located inside cloister's workerd
-  sandbox, and `external`/untrusted is the correct default for a
-  standing Node process cloister only ever reaches over the network,
-  per cloister's own tenancy docs. No `groups` partitioning is
+  preference for the registry document's current target: it points at
+  the Eve/Nitro server, which cloister reaches over the network, so
+  `external`/untrusted is the correct default. The no-Eve Worker host is
+  tracked separately as the future co-location/service-binding target,
+  not as the default registry remote yet. No `groups` partitioning is
   declared — this small tool set doesn't need splitting into separate
   cloister backends, and cloister's resolver falls back to one coarse
   backend for exactly this case.
@@ -669,7 +668,7 @@ The mechanistic core — `Source`/`Artifact`/`Observation`/`LifecycleEvent`
 schema/renderer, and the pure parts of config parsing — lives in
 `packages/vespers/` (`@agentic-research/vespers-core`), a separate workspace package with
 zero dependency on eve or `node:fs`. This doesn't change the tenancy
-declaration above — canonical-hours as a whole app is still an eve/Node
+declaration above — the default registry target is still an eve/Nitro
 process and still correctly declares itself `external`/untrusted — but
 the engine *inside* it is now provably decoupled from that constraint.
 The package emits `dist/` with declarations and is configured for public
@@ -683,23 +682,17 @@ contract this repo has always used.
 
 This isn't a portability *claim* — `packages/vespers/test-workerd/portability.test.ts`
 runs `mergeEvents`/`foldState`/`computeMaterialHash`/`runTick` (including
-its `node:crypto` `createHash` call) against an in-memory `BoardStore`,
+its Web Crypto SHA-256 helper) against an in-memory `BoardStore`,
 inside a real simulated Workers runtime via `@cloudflare/vitest-pool-workers`
 — the same verification standard already used elsewhere in this repo's
 history for claims that would otherwise be unfalsifiable without a live
-check. One caveat worth being precise about: that test's own compat-mode
-setting isn't what makes `node:crypto` available there — the test pool
-itself unconditionally enables Node-compat for every test worker it
-runs, regardless of config — so the test proves `createHash` works
-inside a real simulated Workers runtime, but it does not by itself prove
-what compat flags a real future deployment's own `wrangler.toml` would
-need to set for the same to hold there.
+check.
 
-A second real consumer (cloister, or any other workerd host) importing
-`@agentic-research/vespers-core` directly — rather than reaching canonical-hours over
-HTTP as an external tenant, today's only integration path — is a
-deliberately separate, future, un-scoped step; this work only proves the
-package itself is portable.
+A second real consumer now exists in this repo: `worker/index.ts`
+imports `@agentic-research/vespers-core` directly, persists the board in
+a Durable Object, and is covered by `task test:worker`. Moving that host
+from local/miniflare into cloister as a deployed service binding is still
+a separate rollout step.
 
 ## Design decisions
 
@@ -961,9 +954,9 @@ handling of this channel — that gap is closed below.
 - `/mcp` mounts and routes correctly through eve's own dev server, not
   just the e2e test's direct-handler bypass above: `POST /mcp`
   `initialize` returns a real JSON-RPC response with
-  `serverInfo.name: "canonical-hours"`; `tools/list` returns both
-  `get_board` and `trigger_tick` with real schemas; `GET /mcp` returns
-  `405` as designed. Run with dummy `LECTIO_URL`/`GITHUB_TOKEN`/
+  `serverInfo.name: "canonical-hours"`; `tools/list` returns all four
+  tools with real schemas; `GET /mcp` returns `405` as designed. Run with
+  dummy `LECTIO_URL`/`GITHUB_TOKEN`/
   `ANTHROPIC_API_KEY` (no real `.env` in this repo) — `get_board`
   works fully, `trigger_tick` correctly surfaces the dummy credentials
   as real failures rather than crashing.
