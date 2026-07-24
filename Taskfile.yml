@@ -11,14 +11,23 @@ tasks:
       - task --list
 
   deps:
-    desc: Install dependencies from pnpm-lock.yaml (frozen)
+    desc: Install dependencies from pnpm-lock.yaml (frozen) and build local workspace packages
     cmds:
       - CI=true pnpm install --frozen-lockfile
+      - task build:vespers
     sources:
       - package.json
       - pnpm-lock.yaml
+      - packages/vespers/src/**/*.ts
+      - packages/vespers/tsconfig.build.json
     generates:
       - node_modules/.modules.yaml
+      - packages/vespers/dist/index.js
+
+  build:vespers:
+    desc: "Build @agentic-research/vespers-core package dist artifacts"
+    cmds:
+      - pnpm --filter @agentic-research/vespers-core run build
 
   setup:
     desc: "Fresh-clone bootstrap: prepare pnpm, create .env if missing, install deps, and wire local hooks when possible."
@@ -118,6 +127,13 @@ tasks:
     deps: [deps]
     cmds:
       - pnpm --filter @agentic-research/vespers-core run test:package
+
+  publish:vespers:
+    desc: "Build, test, and publish @agentic-research/vespers-core to npm using pnpm"
+    deps: [deps]
+    cmds:
+      - task test:package
+      - pnpm --filter @agentic-research/vespers-core publish --no-git-checks --access public
 
   typecheck:
     desc: TypeScript type check (no emit)
