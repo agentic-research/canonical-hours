@@ -40,7 +40,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agentic-research/dpop": "^0.2.0",
+    "@agentic-research/dpop": "0.3.0",
     "@agentic-research/observer-core": "workspace:^",
     "@agentic-research/vespers-core": "workspace:^",
     "@ai-sdk/anthropic": "^4.0.16",

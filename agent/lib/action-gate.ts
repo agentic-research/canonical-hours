@@ -1,4 +1,8 @@
-import { verifyDPoPToken } from "@agentic-research/dpop";
+import {
+  DPoPVerificationError,
+  verifyDPoPToken,
+  type VerifyErrorCode,
+} from "@agentic-research/dpop";
 
 /** Structurally compatible with the MCP SDK's IsomorphicHeaders — declared
  * locally so this module doesn't reach into SDK-internal export paths. */
@@ -8,15 +12,17 @@ export interface ActionGateContext {
   toolName: string;
   headers: HeaderLookup;
   /**
-   * The request URL, normalized to origin+pathname (no query/fragment) —
-   * required by `notmeDpopGate` to verify a DPoP proof's `htu` claim
-   * (RFC 9449 §4.3, exact string match, no normalization done by the
-   * verifier itself). Callers not using `notmeDpopGate` can omit it.
+   * The absolute request URL used to verify a DPoP proof's `htu` claim.
+   * `@agentic-research/dpop` 0.3.0 canonicalizes both URLs and removes
+   * query/fragment before comparing them (RFC 9449 §4.3). Callers not
+   * using `notmeDpopGate` can omit it.
    */
   url?: string;
 }
 
-export type ActionGateVerdict = { allowed: true } | { allowed: false; reason: string };
+export type ActionGateVerdict =
+  | { allowed: true }
+  | { allowed: false; reason: string; code?: VerifyErrorCode };
 
 /**
  * Authorizes one mutating MCP action-tool call. Pluggable by design
@@ -108,11 +114,11 @@ export interface NotmeDpopGateOptions {
    * and for deployments that want to pin notme's signing key rather than
    * fetch it per call. Passed straight through to `verifyDPoPToken`. */
   publicKey?: CryptoKey;
-  /** Replay check for the DPoP proof's jti — defaults to a shared
-   * in-memory tracker (see `seenJtiTracker` below) when omitted. Tests
+  /** Atomic replay check-and-record for the DPoP proof's jti — defaults to
+   * a shared in-memory tracker (see `jtiLedger` below) when omitted. Tests
    * that want to assert replay behavior in isolation, or a future
    * deployment that wants a durable store, can inject their own. */
-  seenJti?: (jti: string) => boolean | Promise<boolean>;
+  checkAndRecordJti?: (jti: string) => boolean | Promise<boolean>;
 }
 
 /**
@@ -124,9 +130,8 @@ export interface NotmeDpopGateOptions {
  * built for exactly this situation (an app framework, eve/Vercel, with no
  * TLS-server config exposure), not a fallback.
  *
- * `seenJti` (below, wired by `defaultActionGate`) closes what used to be a
- * documented limitation here: without it, a captured proof was only
- * rejected once its 60s freshness window elapsed, not immediately.
+ * `checkAndRecordJti` (below, wired by `defaultActionGate`) rejects a
+ * captured proof immediately rather than only after its freshness window.
  */
 export function notmeDpopGate(opts: NotmeDpopGateOptions): ActionGate {
   const jwksUrl = opts.jwksUrl;
@@ -159,20 +164,18 @@ export function notmeDpopGate(opts: NotmeDpopGateOptions): ActionGate {
         publicKey: opts.publicKey,
         audience: opts.audience,
         issuer: opts.issuer,
-        seenJti: opts.seenJti ?? seenJtiTracker.check,
-        // notme mints `nbf: iat` on every access token and the SDK defaults to
-        // zero skew tolerance, so a verifier whose clock trails auth.notme.bot
-        // — which this is, running on separate infrastructure — rejects
-        // perfectly good tokens. Bounded deliberately: it widens `exp` too.
-        // cloister hit this as a live regression (notme-18450e).
-        clockTolerance: 60,
+        checkAndRecordJti: opts.checkAndRecordJti ?? jtiLedger.checkAndRecord,
       });
       if (opts.requiredScope && !claims.scope.split(/\s+/).includes(opts.requiredScope)) {
         return { allowed: false, reason: `token missing required scope "${opts.requiredScope}"` };
       }
       return { allowed: true };
     } catch (err) {
-      return { allowed: false, reason: err instanceof Error ? err.message : String(err) };
+      return {
+        allowed: false,
+        reason: err instanceof Error ? err.message : String(err),
+        ...(err instanceof DPoPVerificationError ? { code: err.code } : {}),
+      };
     }
   };
 }
@@ -187,11 +190,11 @@ export function notmeDpopGate(opts: NotmeDpopGateOptions): ActionGate {
  * window — a proof past that window is rejected on `iat` alone, so
  * nothing useful survives to be pruned early).
  */
-const seenJtiTracker = (() => {
+const jtiLedger = (() => {
   const TTL_MS = 120_000;
   const seenAt = new Map<string, number>();
   return {
-    check(jti: string): boolean {
+    checkAndRecord(jti: string): boolean {
       const now = Date.now();
       for (const [key, ts] of seenAt) {
         if (now - ts > TTL_MS) seenAt.delete(key);
