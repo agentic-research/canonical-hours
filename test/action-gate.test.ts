@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import { actionGateFromEnv, sharedSecretGate, notmeDpopGate } from "../agent/lib/action-gate";
 import { computeJwkThumbprint } from "@agentic-research/dpop";
 
@@ -136,16 +136,21 @@ async function mintToken(opts: {
 async function buildProof(opts: {
   keyPair: CryptoKeyPair;
   jwk: JsonWebKey;
+  token: string;
   htm: string;
   htu: string;
   payloadOverrides?: Record<string, unknown>;
 }): Promise<string> {
   const header = { typ: "dpop+jwt", alg: "ES256", jwk: opts.jwk };
+  const ath = b64url(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(opts.token)),
+  );
   const payload = {
     jti: crypto.randomUUID(),
     htm: opts.htm,
     htu: opts.htu,
     iat: Math.floor(Date.now() / 1000),
+    ath,
     ...opts.payloadOverrides,
   };
   const headerB64 = b64urlStr(JSON.stringify(header));
@@ -172,6 +177,92 @@ describe("notmeDpopGate", () => {
     jkt = await computeJwkThumbprint(ecJwk);
   });
 
+  async function verifyProof(
+    token: string,
+    proof: string,
+    url = URL_,
+    options: Parameters<typeof notmeDpopGate>[0] = { audience: AUDIENCE, publicKey: edKp.publicKey },
+  ) {
+    return notmeDpopGate(options)({
+      toolName: "t",
+      headers: { authorization: `DPoP ${token}`, dpop: proof },
+      url,
+    });
+  }
+
+  async function invokeGate(gate: ReturnType<typeof notmeDpopGate>, token: string, proof: string) {
+    return gate({
+      toolName: "t",
+      headers: { authorization: `DPoP ${token}`, dpop: proof },
+      url: URL_,
+    });
+  }
+
+  async function checkIatOffset(offset: number, allowed: boolean, now: number) {
+    const token = await mintToken({ signingKey: edKp.privateKey, sub: `agent-${offset}`, jkt });
+    const proof = await buildProof({
+      keyPair: ecKp,
+      jwk: ecJwk,
+      token,
+      htm: "POST",
+      htu: URL_,
+      payloadOverrides: { iat: now + offset },
+    });
+    const verdict = await notmeDpopGate({
+      audience: AUDIENCE,
+      publicKey: edKp.publicKey,
+    })({
+      toolName: "t",
+      headers: { authorization: `DPoP ${token}`, dpop: proof },
+      url: URL_,
+    });
+    expect(verdict.allowed, `offset ${offset}`).toBe(allowed);
+  }
+
+  async function exerciseJtiValidation(
+    gate: ReturnType<typeof notmeDpopGate>,
+    token: string,
+    proofJti: string,
+    checked: string[],
+  ) {
+    const invalidProof = await buildProof({
+      keyPair: ecKp,
+      jwk: ecJwk,
+      token,
+      htm: "POST",
+      htu: URL_,
+      payloadOverrides: { jti: proofJti, ath: "invalid" },
+    });
+    const invalid = await invokeGate(gate, token, invalidProof);
+    const checkedAfterInvalid = [...checked];
+    const validProof = await buildProof({
+      keyPair: ecKp,
+      jwk: ecJwk,
+      token,
+      htm: "POST",
+      htu: URL_,
+      payloadOverrides: { jti: proofJti },
+    });
+    const valid = await invokeGate(gate, token, validProof);
+    return { invalid, valid, checkedAfterInvalid };
+  }
+
+  async function runJtiValidationScenario() {
+    const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
+    const proofJti = crypto.randomUUID();
+    const checked: string[] = [];
+    const gate = notmeDpopGate({
+      audience: AUDIENCE,
+      publicKey: edKp.publicKey,
+      checkAndRecordJti: (candidate) => {
+        checked.push(candidate);
+        return false;
+      },
+    });
+    const result = await exerciseJtiValidation(gate, token, proofJti, checked);
+    return { ...result, checked, proofJti };
+  }
+
   it("denies when neither NOTME_URL nor jwksUrl/publicKey is configured", async () => {
     const gate = notmeDpopGate({ audience: AUDIENCE });
     const verdict = await gate({ toolName: "t", headers: {}, url: URL_ });
@@ -192,7 +283,7 @@ describe("notmeDpopGate", () => {
 
   it("allows a valid DPoP-bound token matching htm/htu/audience", async () => {
     const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
-    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, htm: "POST", htu: URL_ });
+    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, token, htm: "POST", htu: URL_ });
     const gate = notmeDpopGate({ audience: AUDIENCE, publicKey: edKp.publicKey });
     const verdict = await gate({
       toolName: "t",
@@ -202,6 +293,120 @@ describe("notmeDpopGate", () => {
     expect(verdict).toEqual({ allowed: true });
   });
 
+  it("denies a proof with no ath claim", async () => {
+    const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
+    const proof = await buildProof({
+      keyPair: ecKp,
+      jwk: ecJwk,
+      token,
+      htm: "POST",
+      htu: URL_,
+      payloadOverrides: { ath: undefined },
+    });
+    const verdict = await verifyProof(token, proof);
+    expect(verdict).toMatchObject({ allowed: false, code: "PROOF_ATH_MISSING" });
+  });
+
+  it("denies a proof whose ath is not the hash of the presented token", async () => {
+    const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
+    const proof = await buildProof({
+      keyPair: ecKp,
+      jwk: ecJwk,
+      token,
+      htm: "POST",
+      htu: URL_,
+      payloadOverrides: { ath: "not-the-token-hash" },
+    });
+    const verdict = await notmeDpopGate({
+      audience: AUDIENCE,
+      publicKey: edKp.publicKey,
+    })({
+      toolName: "t",
+      headers: { authorization: `DPoP ${token}`, dpop: proof },
+      url: URL_,
+    });
+    expect(verdict).toMatchObject({ allowed: false, code: "PROOF_ATH_MISMATCH" });
+  });
+
+  it("denies token substitution even when both tokens are otherwise valid for the proof key", async () => {
+    const boundToken = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
+    const substitutedToken = await mintToken({ signingKey: edKp.privateKey, sub: "agent-2", jkt });
+    const proof = await buildProof({
+      keyPair: ecKp,
+      jwk: ecJwk,
+      token: boundToken,
+      htm: "POST",
+      htu: URL_,
+    });
+    const verdict = await notmeDpopGate({
+      audience: AUDIENCE,
+      publicKey: edKp.publicKey,
+    })({
+      toolName: "t",
+      headers: { authorization: `DPoP ${substitutedToken}`, dpop: proof },
+      url: URL_,
+    });
+    expect(verdict).toMatchObject({ allowed: false, code: "PROOF_ATH_MISMATCH" });
+  });
+
+  it("treats the DPoP htm claim as a strict case-sensitive HTTP method token", async () => {
+    const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
+    const proof = await buildProof({
+      keyPair: ecKp,
+      jwk: ecJwk,
+      token,
+      htm: "post",
+      htu: URL_,
+    });
+    const verdict = await notmeDpopGate({
+      audience: AUDIENCE,
+      publicKey: edKp.publicKey,
+    })({
+      toolName: "t",
+      headers: { authorization: `DPoP ${token}`, dpop: proof },
+      url: URL_,
+    });
+    expect(verdict).toMatchObject({ allowed: false, code: "PROOF_HTM_MISMATCH" });
+  });
+
+  it("canonicalizes htu by removing query and fragment before comparison", async () => {
+    const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
+    const proof = await buildProof({
+      keyPair: ecKp,
+      jwk: ecJwk,
+      token,
+      htm: "POST",
+      htu: `${URL_}?proof=one#proof-fragment`,
+    });
+    const verdict = await notmeDpopGate({
+      audience: AUDIENCE,
+      publicKey: edKp.publicKey,
+    })({
+      toolName: "t",
+      headers: { authorization: `DPoP ${token}`, dpop: proof },
+      url: `${URL_}?request=two#request-fragment`,
+    });
+    expect(verdict).toEqual({ allowed: true });
+  });
+
+  it("accepts proof iat at both inclusive 60-second boundaries and rejects 61 seconds", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-24T20:00:00.000Z"));
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      for (const [offset, allowed] of [
+        [-61, false],
+        [-60, true],
+        [60, true],
+        [61, false],
+      ] as const) {
+        await checkIatOffset(offset, allowed, now);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("denies a token whose aud doesn't match — confused-deputy guard", async () => {
     const token = await mintToken({
       signingKey: edKp.privateKey,
@@ -209,7 +414,7 @@ describe("notmeDpopGate", () => {
       jkt,
       audience: "some-other-service",
     });
-    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, htm: "POST", htu: URL_ });
+    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, token, htm: "POST", htu: URL_ });
     const gate = notmeDpopGate({ audience: AUDIENCE, publicKey: edKp.publicKey });
     const verdict = await gate({
       toolName: "t",
@@ -217,9 +422,7 @@ describe("notmeDpopGate", () => {
       url: URL_,
     });
     expect(verdict.allowed).toBe(false);
-    // notme-dffc5c: audience is checked inside verifyDPoPToken itself now,
-    // so this asserts the SDK's own message, not a locally-composed one.
-    expect((verdict as { reason: string }).reason).toContain('"aud" claim mismatch');
+    expect((verdict as { code?: string }).code).toBe("CLAIM_AUD_MISMATCH");
   });
 
   it("denies an expired token", async () => {
@@ -231,7 +434,7 @@ describe("notmeDpopGate", () => {
       iatOverride: now - 700,
       expOverride: now - 400,
     });
-    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, htm: "POST", htu: URL_ });
+    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, token, htm: "POST", htu: URL_ });
     const gate = notmeDpopGate({ audience: AUDIENCE, publicKey: edKp.publicKey });
     const verdict = await gate({
       toolName: "t",
@@ -244,7 +447,7 @@ describe("notmeDpopGate", () => {
   it("denies a proof whose key doesn't match the token's cnf.jkt", async () => {
     const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
     const { keyPair: wrongKp, jwk: wrongJwk } = await generateP256();
-    const proof = await buildProof({ keyPair: wrongKp, jwk: wrongJwk, htm: "POST", htu: URL_ });
+    const proof = await buildProof({ keyPair: wrongKp, jwk: wrongJwk, token, htm: "POST", htu: URL_ });
     const gate = notmeDpopGate({ audience: AUDIENCE, publicKey: edKp.publicKey });
     const verdict = await gate({
       toolName: "t",
@@ -259,6 +462,7 @@ describe("notmeDpopGate", () => {
     const proof = await buildProof({
       keyPair: ecKp,
       jwk: ecJwk,
+      token,
       htm: "POST",
       htu: "https://canonical-hours.example/some-other-route",
     });
@@ -273,7 +477,7 @@ describe("notmeDpopGate", () => {
 
   it("denies when the token lacks a required scope", async () => {
     const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt, scope: "read" });
-    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, htm: "POST", htu: URL_ });
+    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, token, htm: "POST", htu: URL_ });
     const gate = notmeDpopGate({ audience: AUDIENCE, publicKey: edKp.publicKey, requiredScope: "mcp:actions" });
     const verdict = await gate({
       toolName: "t",
@@ -290,7 +494,7 @@ describe("notmeDpopGate", () => {
       jkt,
       scope: "read mcp:actions write",
     });
-    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, htm: "POST", htu: URL_ });
+    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, token, htm: "POST", htu: URL_ });
     const gate = notmeDpopGate({ audience: AUDIENCE, publicKey: edKp.publicKey, requiredScope: "mcp:actions" });
     const verdict = await gate({
       toolName: "t",
@@ -310,7 +514,7 @@ describe("notmeDpopGate", () => {
       jkt,
       issuerOverride: "https://not-auth.notme.bot",
     });
-    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, htm: "POST", htu: URL_ });
+    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, token, htm: "POST", htu: URL_ });
     const gate = notmeDpopGate({ audience: AUDIENCE, publicKey: edKp.publicKey, issuer: "https://auth.notme.bot" });
     const verdict = await gate({
       toolName: "t",
@@ -318,12 +522,12 @@ describe("notmeDpopGate", () => {
       url: URL_,
     });
     expect(verdict.allowed).toBe(false);
-    expect((verdict as { reason: string }).reason).toContain('"iss" claim mismatch');
+    expect((verdict as { code?: string }).code).toBe("CLAIM_ISS_MISMATCH");
   });
 
   it("accepts a token with the pinned issuer", async () => {
     const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
-    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, htm: "POST", htu: URL_ });
+    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, token, htm: "POST", htu: URL_ });
     const gate = notmeDpopGate({ audience: AUDIENCE, publicKey: edKp.publicKey, issuer: "https://auth.notme.bot" });
     const verdict = await gate({
       toolName: "t",
@@ -333,22 +537,34 @@ describe("notmeDpopGate", () => {
     expect(verdict).toEqual({ allowed: true });
   });
 
-  it("denies a replayed proof when seenJti is injected to report it seen", async () => {
+  it("denies a replayed proof when checkAndRecordJti atomically reports it seen", async () => {
     const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
-    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, htm: "POST", htu: URL_ });
-    const gate = notmeDpopGate({ audience: AUDIENCE, publicKey: edKp.publicKey, seenJti: () => true });
+    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, token, htm: "POST", htu: URL_ });
+    const gate = notmeDpopGate({
+      audience: AUDIENCE,
+      publicKey: edKp.publicKey,
+      checkAndRecordJti: () => true,
+    });
     const verdict = await gate({
       toolName: "t",
       headers: { authorization: `DPoP ${token}`, dpop: proof },
       url: URL_,
     });
     expect(verdict.allowed).toBe(false);
-    expect((verdict as { reason: string }).reason).toContain("replay");
+    expect((verdict as { code?: string }).code).toBe("PROOF_REPLAY");
+  });
+
+  it("does not record an invalid proof jti before all stateless validation succeeds", async () => {
+    const { invalid, valid, checked, checkedAfterInvalid, proofJti } = await runJtiValidationScenario();
+    expect(invalid.allowed).toBe(false);
+    expect(checkedAfterInvalid).toEqual([]);
+    expect(valid).toEqual({ allowed: true });
+    expect(checked).toEqual([proofJti]);
   });
 
   it("rejects the second use of the same proof against the default (module-shared) replay tracker", async () => {
     const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
-    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, htm: "POST", htu: URL_ });
+    const proof = await buildProof({ keyPair: ecKp, jwk: ecJwk, token, htm: "POST", htu: URL_ });
     const gate = notmeDpopGate({ audience: AUDIENCE, publicKey: edKp.publicKey });
     const first = await gate({
       toolName: "t",
@@ -362,6 +578,6 @@ describe("notmeDpopGate", () => {
       url: URL_,
     });
     expect(replayed.allowed).toBe(false);
-    expect((replayed as { reason: string }).reason).toContain("replay");
+    expect((replayed as { code?: string }).code).toBe("PROOF_REPLAY");
   });
 });
