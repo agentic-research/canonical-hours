@@ -41,11 +41,6 @@ export interface ActionGateEnv {
   NOTME_REQUIRED_SCOPE?: string;
 }
 
-export interface ActionGateDeps {
-  /** Host-owned atomic replay ledger for deployments with durable state. */
-  checkAndRecordJti?: (jti: string) => boolean | Promise<boolean>;
-}
-
 function headerValue(headers: HeaderLookup, name: string): string | undefined {
   const lower = name.toLowerCase();
   for (const [key, value] of Object.entries(headers)) {
@@ -217,7 +212,10 @@ const jtiLedger = (() => {
  * migration — notme is "experimental, not audited" per its own README, so the
  * static-secret path stays the default until a deployment opts in explicitly.
  */
-export function actionGateFromEnv(env: ActionGateEnv, deps: ActionGateDeps = {}): ActionGate {
+export function actionGateFromEnv(
+  env: ActionGateEnv,
+  deps: { checkAndRecordJti?: (jti: string) => boolean | Promise<boolean> } = {},
+): ActionGate {
   const notmeUrl = env.NOTME_URL?.trim();
   if (notmeUrl) {
     const base = notmeUrl.replace(/\/+$/, "");

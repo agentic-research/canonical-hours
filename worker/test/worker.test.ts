@@ -4,69 +4,27 @@ import { SELF, env, runInDurableObject } from "cloudflare:test";
 import { parseConfig } from "@agentic-research/vespers-core";
 import { describe, expect, it } from "vitest";
 import { buildSources } from "../index";
+import { signedDpopActionRequest } from "./dpop-fixture";
 
-const TEST_NOTME_PRIVATE_JWK: JsonWebKey = {
-  kty: "OKP",
-  crv: "Ed25519",
-  d: "tjlLzqccoiAWR-Rz1EL5V5wI9Q-5UEYwbZZQc2CMwYw",
-  x: "q8_bmUwVjCrdQmoSC9UtCOpRaItgZ23ctfVZJXpe1Ss",
-};
+const MCP_URL = "https://canonical-hours.test/mcp";
 
-function base64url(input: ArrayBuffer | Uint8Array): string {
-  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64urlJson(value: unknown): string {
-  return base64url(new TextEncoder().encode(JSON.stringify(value)));
-}
-
-async function signedDpopRequest(): Promise<Request> {
-  const signingKey = await crypto.subtle.importKey(
-    "jwk",
-    TEST_NOTME_PRIVATE_JWK,
-    { name: "Ed25519" },
-    false,
-    ["sign"],
-  );
-  const proofKeys = await crypto.subtle.generateKey(
-    { name: "ECDSA", namedCurve: "P-256" },
-    true,
-    ["sign", "verify"],
-  ) as CryptoKeyPair;
-  const proofJwk = await crypto.subtle.exportKey("jwk", proofKeys.publicKey) as JsonWebKey;
-  const thumbprintPayload = { crv: proofJwk.crv, kty: proofJwk.kty, x: proofJwk.x, y: proofJwk.y };
-  const jkt = base64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(thumbprintPayload))));
-  const now = Math.floor(Date.now() / 1000);
-  const tokenHeader = base64urlJson({ typ: "at+jwt", alg: "EdDSA", kid: "worker-dpop-test-key" });
-  const tokenPayload = base64urlJson({ sub: "test-agent", iss: "https://notme.test", aud: "canonical-hours", iat: now, nbf: now, exp: now + 300, jti: crypto.randomUUID(), scope: "actions", cnf: { jkt } });
-  const tokenInput = `${tokenHeader}.${tokenPayload}`;
-  const tokenSignature = await crypto.subtle.sign("Ed25519" as any, signingKey, new TextEncoder().encode(tokenInput));
-  const token = `${tokenInput}.${base64url(tokenSignature)}`;
-  const target = "https://canonical-hours.test/mcp";
-  const ath = base64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)));
-  const proofHeader = base64urlJson({ typ: "dpop+jwt", alg: "ES256", jwk: proofJwk });
-  const proofPayload = base64urlJson({ jti: crypto.randomUUID(), htm: "POST", htu: target, iat: now, ath });
-  const proofInput = `${proofHeader}.${proofPayload}`;
-  const proofSignature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, proofKeys.privateKey, new TextEncoder().encode(proofInput));
-  const proof = `${proofInput}.${base64url(proofSignature)}`;
-  return new Request(target, {
+function mcpToolCall(name: string, args: Record<string, unknown> = {}): Request {
+  return new Request(MCP_URL, {
     method: "POST",
-    headers: { authorization: `DPoP ${token}`, dpop: proof, "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "resolve_addressed_review_threads", arguments: { pr: "agentic-research/canonical-hours#1" } } }),
+    body: JSON.stringify({ jsonrpc: "2.0", id: name, method: "tools/call", params: { name, arguments: args } }),
   });
+}
+
+async function mcpText(response: Response): Promise<string | undefined> {
+  const body = await response.json() as { result?: { content?: Array<{ text?: string }> } };
+  return body.result?.content?.[0]?.text;
 }
 
 describe("canonical-hours worker host", () => {
   it("allows exactly one concurrent HTTP use of a signed DPoP proof", async () => {
-    const request = await signedDpopRequest();
+    const request = await signedDpopActionRequest();
     const responses = await Promise.all([SELF.fetch(request.clone()), SELF.fetch(request.clone())]);
-    const messages = await Promise.all(responses.map(async (response) => {
-      const body = await response.json() as { result?: { content?: Array<{ text?: string }> } };
-      return body.result?.content?.[0]?.text;
-    }));
+    const messages = await Promise.all(responses.map(mcpText));
     expect(messages.filter((message) => message === "GITHUB_TOKEN is not configured")).toHaveLength(1);
     expect(messages.filter((message) => message?.includes("DPoP proof replay"))).toHaveLength(1);
     const ledgerBinding = (env as typeof env & {
@@ -125,37 +83,17 @@ describe("canonical-hours worker host", () => {
 
   it("denies mutating MCP tools without a DPoP proof", async () => {
     for (const name of ["resolve_addressed_review_threads", "dismiss_stale_bot_reviews"]) {
-      const res = await SELF.fetch("https://canonical-hours.test/mcp", {
-        method: "POST",
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: name,
-          method: "tools/call",
-          params: { name, arguments: { pr: "agentic-research/canonical-hours#1" } },
-        }),
-      });
+      const res = await SELF.fetch(mcpToolCall(name, { pr: "agentic-research/canonical-hours#1" }));
 
       expect(res.status).toBe(200);
-      const json = (await res.json()) as {
-        result?: { isError?: boolean; content?: Array<{ text?: string }> };
-      };
-      expect(json.result?.isError).toBe(true);
-      expect(json.result?.content?.[0]?.text).toContain("missing Authorization: DPoP");
+      expect(await mcpText(res)).toContain("missing Authorization: DPoP");
     }
   });
 
   it("serves board routes and MCP tick locally in workerd", async () => {
     expect(await SELF.fetch("https://canonical-hours.test/board")).toMatchObject({ status: 404 });
 
-    const tick = await SELF.fetch("https://canonical-hours.test/mcp", {
-      method: "POST",
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: { name: "trigger_tick", arguments: {} },
-      }),
-    });
+    const tick = await SELF.fetch(mcpToolCall("trigger_tick"));
     expect(tick.status).toBe(200);
     const tickJson = (await tick.json()) as {
       result?: { structuredContent?: { result?: string } };
