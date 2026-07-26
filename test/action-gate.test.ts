@@ -177,6 +177,92 @@ describe("notmeDpopGate", () => {
     jkt = await computeJwkThumbprint(ecJwk);
   });
 
+  async function verifyProof(
+    token: string,
+    proof: string,
+    url = URL_,
+    options: Parameters<typeof notmeDpopGate>[0] = { audience: AUDIENCE, publicKey: edKp.publicKey },
+  ) {
+    return notmeDpopGate(options)({
+      toolName: "t",
+      headers: { authorization: `DPoP ${token}`, dpop: proof },
+      url,
+    });
+  }
+
+  async function invokeGate(gate: ReturnType<typeof notmeDpopGate>, token: string, proof: string) {
+    return gate({
+      toolName: "t",
+      headers: { authorization: `DPoP ${token}`, dpop: proof },
+      url: URL_,
+    });
+  }
+
+  async function checkIatOffset(offset: number, allowed: boolean, now: number) {
+    const token = await mintToken({ signingKey: edKp.privateKey, sub: `agent-${offset}`, jkt });
+    const proof = await buildProof({
+      keyPair: ecKp,
+      jwk: ecJwk,
+      token,
+      htm: "POST",
+      htu: URL_,
+      payloadOverrides: { iat: now + offset },
+    });
+    const verdict = await notmeDpopGate({
+      audience: AUDIENCE,
+      publicKey: edKp.publicKey,
+    })({
+      toolName: "t",
+      headers: { authorization: `DPoP ${token}`, dpop: proof },
+      url: URL_,
+    });
+    expect(verdict.allowed, `offset ${offset}`).toBe(allowed);
+  }
+
+  async function exerciseJtiValidation(
+    gate: ReturnType<typeof notmeDpopGate>,
+    token: string,
+    proofJti: string,
+    checked: string[],
+  ) {
+    const invalidProof = await buildProof({
+      keyPair: ecKp,
+      jwk: ecJwk,
+      token,
+      htm: "POST",
+      htu: URL_,
+      payloadOverrides: { jti: proofJti, ath: "invalid" },
+    });
+    const invalid = await invokeGate(gate, token, invalidProof);
+    const checkedAfterInvalid = [...checked];
+    const validProof = await buildProof({
+      keyPair: ecKp,
+      jwk: ecJwk,
+      token,
+      htm: "POST",
+      htu: URL_,
+      payloadOverrides: { jti: proofJti },
+    });
+    const valid = await invokeGate(gate, token, validProof);
+    return { invalid, valid, checkedAfterInvalid };
+  }
+
+  async function runJtiValidationScenario() {
+    const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
+    const proofJti = crypto.randomUUID();
+    const checked: string[] = [];
+    const gate = notmeDpopGate({
+      audience: AUDIENCE,
+      publicKey: edKp.publicKey,
+      checkAndRecordJti: (candidate) => {
+        checked.push(candidate);
+        return false;
+      },
+    });
+    const result = await exerciseJtiValidation(gate, token, proofJti, checked);
+    return { ...result, checked, proofJti };
+  }
+
   it("denies when neither NOTME_URL nor jwksUrl/publicKey is configured", async () => {
     const gate = notmeDpopGate({ audience: AUDIENCE });
     const verdict = await gate({ toolName: "t", headers: {}, url: URL_ });
@@ -217,14 +303,7 @@ describe("notmeDpopGate", () => {
       htu: URL_,
       payloadOverrides: { ath: undefined },
     });
-    const verdict = await notmeDpopGate({
-      audience: AUDIENCE,
-      publicKey: edKp.publicKey,
-    })({
-      toolName: "t",
-      headers: { authorization: `DPoP ${token}`, dpop: proof },
-      url: URL_,
-    });
+    const verdict = await verifyProof(token, proof);
     expect(verdict).toMatchObject({ allowed: false, code: "PROOF_ATH_MISSING" });
   });
 
@@ -321,24 +400,7 @@ describe("notmeDpopGate", () => {
         [60, true],
         [61, false],
       ] as const) {
-        const token = await mintToken({ signingKey: edKp.privateKey, sub: `agent-${offset}`, jkt });
-        const proof = await buildProof({
-          keyPair: ecKp,
-          jwk: ecJwk,
-          token,
-          htm: "POST",
-          htu: URL_,
-          payloadOverrides: { iat: now + offset },
-        });
-        const verdict = await notmeDpopGate({
-          audience: AUDIENCE,
-          publicKey: edKp.publicKey,
-        })({
-          toolName: "t",
-          headers: { authorization: `DPoP ${token}`, dpop: proof },
-          url: URL_,
-        });
-        expect(verdict.allowed, `offset ${offset}`).toBe(allowed);
+        await checkIatOffset(offset, allowed, now);
       }
     } finally {
       vi.useRealTimers();
@@ -493,46 +555,9 @@ describe("notmeDpopGate", () => {
   });
 
   it("does not record an invalid proof jti before all stateless validation succeeds", async () => {
-    const token = await mintToken({ signingKey: edKp.privateKey, sub: "agent-1", jkt });
-    const proofJti = crypto.randomUUID();
-    const checked: string[] = [];
-    const gate = notmeDpopGate({
-      audience: AUDIENCE,
-      publicKey: edKp.publicKey,
-      checkAndRecordJti: (candidate) => {
-        checked.push(candidate);
-        return false;
-      },
-    });
-    const invalidProof = await buildProof({
-      keyPair: ecKp,
-      jwk: ecJwk,
-      token,
-      htm: "POST",
-      htu: URL_,
-      payloadOverrides: { jti: proofJti, ath: "invalid" },
-    });
-    const invalid = await gate({
-      toolName: "t",
-      headers: { authorization: `DPoP ${token}`, dpop: invalidProof },
-      url: URL_,
-    });
+    const { invalid, valid, checked, checkedAfterInvalid, proofJti } = await runJtiValidationScenario();
     expect(invalid.allowed).toBe(false);
-    expect(checked).toEqual([]);
-
-    const validProof = await buildProof({
-      keyPair: ecKp,
-      jwk: ecJwk,
-      token,
-      htm: "POST",
-      htu: URL_,
-      payloadOverrides: { jti: proofJti },
-    });
-    const valid = await gate({
-      toolName: "t",
-      headers: { authorization: `DPoP ${token}`, dpop: validProof },
-      url: URL_,
-    });
+    expect(checkedAfterInvalid).toEqual([]);
     expect(valid).toEqual({ allowed: true });
     expect(checked).toEqual([proofJti]);
   });
