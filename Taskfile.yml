@@ -187,6 +187,18 @@ tasks:
       - task test
       - task test:worker
 
+  publish:vespers:
+    desc: "Run the full gate, then publish @agentic-research/vespers-core through its release task."
+    deps: [check]
+    cmds:
+      - task vespers:publish
+
+  publish:observer:
+    desc: "Run the full gate, then publish @agentic-research/observer-core through its release task."
+    deps: [check]
+    cmds:
+      - task observer:publish
+
   ci:
     desc: "The exact gate CI runs (.github/workflows/ci.yml): typecheck + package smoke + test. The smell gate runs as its own workflow (.github/workflows/smells.yml, via mache's composite action) rather than through this task — see docs/smell-gate.md."
     cmds:

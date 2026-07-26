@@ -41,6 +41,11 @@ export interface ActionGateEnv {
   NOTME_REQUIRED_SCOPE?: string;
 }
 
+export interface ActionGateDeps {
+  /** Host-owned atomic replay ledger for deployments with durable state. */
+  checkAndRecordJti?: (jti: string) => boolean | Promise<boolean>;
+}
+
 function headerValue(headers: HeaderLookup, name: string): string | undefined {
   const lower = name.toLowerCase();
   for (const [key, value] of Object.entries(headers)) {
@@ -212,7 +217,7 @@ const jtiLedger = (() => {
  * migration — notme is "experimental, not audited" per its own README, so the
  * static-secret path stays the default until a deployment opts in explicitly.
  */
-export function actionGateFromEnv(env: ActionGateEnv): ActionGate {
+export function actionGateFromEnv(env: ActionGateEnv, deps: ActionGateDeps = {}): ActionGate {
   const notmeUrl = env.NOTME_URL?.trim();
   if (notmeUrl) {
     const base = notmeUrl.replace(/\/+$/, "");
@@ -221,6 +226,9 @@ export function actionGateFromEnv(env: ActionGateEnv): ActionGate {
       audience: env.NOTME_AUDIENCE ?? "canonical-hours",
       issuer: env.NOTME_ISSUER,
       requiredScope: env.NOTME_REQUIRED_SCOPE,
+      // The Eve/Node host keeps notmeDpopGate's in-memory development
+      // fallback. The Worker injects its Durable Object ledger explicitly.
+      checkAndRecordJti: deps.checkAndRecordJti,
     });
   }
   return sharedSecretGate(env.MCP_ACTION_TOKEN);
