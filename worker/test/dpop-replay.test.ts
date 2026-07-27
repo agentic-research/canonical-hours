@@ -4,17 +4,13 @@ import { SELF, env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { signedDpopActionRequest } from "./dpop-fixture";
 
-type ReplayLedgerBinding = {
-  idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): DurableObjectStub;
-};
-
-function replayLedger(): ReplayLedgerBinding {
-  return (env as typeof env & { CH_DPOP_LEDGER: ReplayLedgerBinding }).CH_DPOP_LEDGER;
-}
-
 function ledgerFor(name: string): DurableObjectStub {
-  const binding = replayLedger();
+  const binding = (env as typeof env & {
+    CH_DPOP_LEDGER: {
+      idFromName(name: string): DurableObjectId;
+      get(id: DurableObjectId): DurableObjectStub;
+    };
+  }).CH_DPOP_LEDGER;
   return binding.get(binding.idFromName(name));
 }
 
