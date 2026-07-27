@@ -1,5 +1,11 @@
 version: '3'
 
+vars:
+  # Single source for the local smell gate and the pinned CI composite Action.
+  MACHE_VERSION:
+    sh: tr -d '[:space:]' < .mache-version
+  MACHE_BIN: .tools/mache
+
 includes:
   vespers:
     taskfile: ./packages/vespers
@@ -159,17 +165,48 @@ tasks:
     cmds:
       - pnpm exec vitest run --config worker/vitest.config.mts
 
-  smells:
-    desc: "Structural smell gate — fail only on findings beyond docs/smell-baseline.json (see docs/smell-gate.md). --tags=gate matches mache's own ratchet convention (the composite GitHub Action hardcodes the same selection) and excludes the min-0 firehose rules (cyclomatic_complexity, magic_int_in_comparison) that fire noise on every file rather than genuine structural debt. Requires the mache CLI."
+  mache:ensure:
+    internal: true
+    desc: "Provision the exact Mache release used by the CI composite action."
+    preconditions:
+      - sh: command -v curl >/dev/null 2>&1
+        msg: "curl is required to provision the pinned Mache release."
     cmds:
-      - mache build . smells.db
-      - mache find-smells --db smells.db --rule '*' --tags=gate --limit 100000 --baseline-root "$PWD" --baseline docs/smell-baseline.json
+      - |
+        set -euo pipefail
+        expected="{{.MACHE_VERSION}}"
+        expected="${expected#v}"
+        if [ -x "{{.MACHE_BIN}}" ] && "{{.MACHE_BIN}}" --version | grep -Fq "mache version $expected"; then
+          exit 0
+        fi
+        case "$(uname -s)" in
+          Darwin) os=darwin ;;
+          Linux) os=linux ;;
+          *) echo "unsupported OS for Mache: $(uname -s)" >&2; exit 1 ;;
+        esac
+        case "$(uname -m)" in
+          arm64|aarch64) arch=arm64 ;;
+          x86_64|amd64) arch=amd64 ;;
+          *) echo "unsupported CPU for Mache: $(uname -m)" >&2; exit 1 ;;
+        esac
+        mkdir -p .tools
+        curl -fsSL "https://github.com/agentic-research/mache/releases/download/{{.MACHE_VERSION}}/mache-${os}-${arch}" -o "{{.MACHE_BIN}}.tmp"
+        chmod +x "{{.MACHE_BIN}}.tmp"
+        mv -f "{{.MACHE_BIN}}.tmp" "{{.MACHE_BIN}}"
+
+  smells:
+    desc: "Structural smell gate — fail only on findings beyond docs/smell-baseline.json, using the exact Mache release pinned for the CI composite action."
+    deps: [mache:ensure]
+    cmds:
+      - '{{.MACHE_BIN}} build . smells.db'
+      - '{{.MACHE_BIN}} find-smells --db smells.db --rule "*" --tags=gate --limit 100000 --baseline-root "$PWD" --baseline docs/smell-baseline.json'
 
   smells:baseline:
     desc: "Regenerate docs/smell-baseline.json from the current scan (same --tags=gate selection as `task smells`). Deliberate re-grandfathering only (e.g. after an accepted refactor) — day-to-day use `task smells`. In a tree with any OTHER concurrent, unrelated unstaged/untracked WIP present, prefer `task smells:baseline:safe` instead — this target scans the real working tree as-is, WIP included (canonical-hours-4ba370)."
+    deps: [mache:ensure]
     cmds:
-      - mache build . smells.db
-      - mache find-smells --db smells.db --rule '*' --tags=gate --limit 100000 --baseline-root "$PWD" --write-baseline docs/smell-baseline.json
+      - '{{.MACHE_BIN}} build . smells.db'
+      - '{{.MACHE_BIN}} find-smells --db smells.db --rule "*" --tags=gate --limit 100000 --baseline-root "$PWD" --write-baseline docs/smell-baseline.json'
 
   smells:baseline:safe:
     desc: "Like `smells:baseline`, but isolated from any concurrent unrelated WIP elsewhere in the working tree (canonical-hours-4ba370) — regenerates against the STAGED tree only, via the same git checkout-index isolation the pre-commit hook uses. Prefer this over `smells:baseline` whenever another process might have unstaged/untracked changes on disk."

@@ -10,6 +10,10 @@ and `.github/workflows/smells.yml`, using mache's composite Action).
   smell present at bootstrap time, grandfathered. The gate model is
   "no *new* debt": findings already in the baseline never fail a run;
   findings not in it do.
+- `.mache-version` is the single Mache release pin for both `task smells`
+  and the CI composite Action. The local task downloads that exact release
+  into ignored `.tools/mache`; it never relies on a globally installed CLI or
+  a sibling checkout.
 - `task smells` / `task smells:baseline` run `--tags=gate` — the same
   rule-tag selection mache's own Taskfile and its composite GitHub
   Action use (verified directly against `~/remotes/art/mache`'s
@@ -24,15 +28,15 @@ and `.github/workflows/smells.yml`, using mache's composite Action).
 
 ## Regenerating locally
 
-From the repo root (requires the `mache` CLI from
-`agentic-research/mache`):
+From the repo root:
 
     task smells:baseline
 
-Or run the two `mache` commands directly:
+`task smells` provisions the pinned Mache binary automatically. To run its
+two commands directly, use `.tools/mache` after that bootstrap:
 
-    mache build . smells.db
-    mache find-smells --db smells.db --rule '*' --limit 100000 \
+    .tools/mache build . smells.db
+    .tools/mache find-smells --db smells.db --rule '*' --limit 100000 \
       --baseline-root "$PWD" --write-baseline docs/smell-baseline.json
 
 `smells.db` is gitignored — commit only the baseline. Re-run
@@ -85,7 +89,8 @@ different, mutually-inconsistent trees.
 
 `.github/workflows/smells.yml` uses `agentic-research/mache`'s
 composite GitHub Action (the same one mache dogfoods on itself), pinned
-to a release tag rather than `@main`. It gates on
+to a commit rather than `@main`; its release input and the local task both
+read `.mache-version`. It gates on
 `docs/smell-baseline.json`. SARIF upload to the code-scanning tab is
 disabled (`upload-sarif: false`) — this repo is private and that
 upload requires GitHub Advanced Security, which isn't enabled here; it

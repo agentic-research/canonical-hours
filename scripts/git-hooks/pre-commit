@@ -10,11 +10,6 @@
 set -e
 cd "$(git rev-parse --show-toplevel)"
 
-if ! command -v mache >/dev/null 2>&1; then
-  echo "pre-commit: mache CLI not found on PATH — skipping smell gate (install from agentic-research/mache to enable)." >&2
-  exit 0
-fi
-
 # Scan only the tree that's actually about to be committed — not unrelated
 # unstaged/WIP changes sitting elsewhere in the working tree (canonical-hours-5a1165),
 # and not contaminated by a concurrent agent's uncommitted edits landing on disk
