@@ -164,7 +164,7 @@ export function notmeDpopGate(opts: NotmeDpopGateOptions): ActionGate {
         publicKey: opts.publicKey,
         audience: opts.audience,
         issuer: opts.issuer,
-        checkAndRecordJti: opts.checkAndRecordJti ?? jtiLedger.checkAndRecord,
+        checkAndRecordJti: opts.checkAndRecordJti ?? checkAndRecordInMemoryJti,
       });
       if (opts.requiredScope && !claims.scope.split(/\s+/).includes(opts.requiredScope)) {
         return { allowed: false, reason: `token missing required scope "${opts.requiredScope}"` };
@@ -190,21 +190,18 @@ export function notmeDpopGate(opts: NotmeDpopGateOptions): ActionGate {
  * window — a proof past that window is rejected on `iat` alone, so
  * nothing useful survives to be pruned early).
  */
-const jtiLedger = (() => {
-  const TTL_MS = 120_000;
-  const seenAt = new Map<string, number>();
-  return {
-    checkAndRecord(jti: string): boolean {
-      const now = Date.now();
-      for (const [key, ts] of seenAt) {
-        if (now - ts > TTL_MS) seenAt.delete(key);
-      }
-      if (seenAt.has(jti)) return true;
-      seenAt.set(jti, now);
-      return false;
-    },
-  };
-})();
+const JTI_TTL_MS = 120_000;
+const seenJtiAt = new Map<string, number>();
+
+function checkAndRecordInMemoryJti(jti: string): boolean {
+  const now = Date.now();
+  for (const [key, seenAt] of seenJtiAt) {
+    if (now - seenAt > JTI_TTL_MS) seenJtiAt.delete(key);
+  }
+  if (seenJtiAt.has(jti)) return true;
+  seenJtiAt.set(jti, now);
+  return false;
+}
 
 /**
  * Picks the configured gate from a host-provided env object: `notmeDpopGate`
