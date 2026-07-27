@@ -189,9 +189,44 @@ tasks:
           x86_64|amd64) arch=amd64 ;;
           *) echo "unsupported CPU for Mache: $(uname -m)" >&2; exit 1 ;;
         esac
+        # sha256 is spelled differently across the two platforms this supports.
+        if command -v sha256sum >/dev/null 2>&1; then
+          sha256() { sha256sum "$1" | awk '{print $1}'; }
+        elif command -v shasum >/dev/null 2>&1; then
+          sha256() { shasum -a 256 "$1" | awk '{print $1}'; }
+        else
+          echo "need sha256sum or shasum to verify the Mache download" >&2; exit 1
+        fi
+
+        asset="mache-${os}-${arch}"
+        base="https://github.com/agentic-research/mache/releases/download/{{.MACHE_VERSION}}"
+
+        # Verify the download against the release's published checksums rather
+        # than trusting the transport alone. This repo SHA-pins its GitHub
+        # Actions; fetching an unpinned, unverified executable and running it
+        # over the whole source tree would be the weakest link in that chain.
+        # mache's release workflow publishes checksums-sha256.txt (sha256sum
+        # over every mache-* asset), so there is a real artifact to check.
+        expected_sum="$(curl -fsSL "${base}/checksums-sha256.txt" \
+          | awk -v f="${asset}" '{ sub(/^\*/, "", $2); if ($2 == f) print $1 }')"
+        if [ -z "${expected_sum}" ]; then
+          echo "no published sha256 for ${asset} in {{.MACHE_VERSION}}'s checksums-sha256.txt" >&2
+          exit 1
+        fi
+
         mkdir -p .tools
-        curl -fsSL "https://github.com/agentic-research/mache/releases/download/{{.MACHE_VERSION}}/mache-${os}-${arch}" -o "{{.MACHE_BIN}}.tmp"
+        curl -fsSL "${base}/${asset}" -o "{{.MACHE_BIN}}.tmp"
+        actual_sum="$(sha256 "{{.MACHE_BIN}}.tmp")"
+        if [ "${actual_sum}" != "${expected_sum}" ]; then
+          rm -f "{{.MACHE_BIN}}.tmp"
+          echo "Mache checksum mismatch for ${asset} @ {{.MACHE_VERSION}}" >&2
+          echo "  expected ${expected_sum}" >&2
+          echo "  actual   ${actual_sum}" >&2
+          exit 1
+        fi
         chmod +x "{{.MACHE_BIN}}.tmp"
+        # Install only after verification, and atomically, so an interrupted or
+        # rejected download can never leave a runnable binary behind.
         mv -f "{{.MACHE_BIN}}.tmp" "{{.MACHE_BIN}}"
 
   smells:
