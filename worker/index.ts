@@ -15,6 +15,7 @@ import { LectioSource, createMcpLectioCall, type LectioCall } from "../agent/lib
 import { LinearSource } from "../agent/lib/sources/linear";
 import { WeatherSource } from "../agent/lib/sources/weather";
 import { actionGateFromEnv, type HeaderLookup } from "../agent/lib/action-gate";
+import { leaseIsHeld, TICK_LEASE_MS } from "../agent/lib/tick-lease";
 import { dismissStaleBotReviews } from "../agent/lib/bot-review-dismissal";
 import { parsePrRef } from "../agent/lib/pr-ref";
 import { resolveAddressedThreads } from "../agent/lib/thread-resolution";
@@ -139,7 +140,34 @@ export function buildSources(
   return { sources, snapshotSources };
 }
 
+/**
+ * Run one tick under a cross-isolate lease.
+ *
+ * `runTick`'s own overlap guard is a module-scope flag and so is per-isolate;
+ * Cloudflare can dispatch two concurrent `/tick` requests to two isolates,
+ * where both see it unset. The Durable Object that already owns the board
+ * serializes this check-and-set across all of them.
+ *
+ * Returns "skipped_overlap" — the same value `runTick` returns for the
+ * in-process case — so callers cannot tell which guard fired and neither has
+ * to be special-cased. (bead:canonical-hours-25ff14.)
+ */
 async function triggerTick(env: Env): Promise<TickResult> {
+  // Same object id the board store uses (idFromName("default")): the lease
+  // must live on the DO that owns the board, not a second instance.
+  const lock = env.CH_BOARD.get(env.CH_BOARD.idFromName("default"));
+  if (!(await lock.acquireTickLease(TICK_LEASE_MS))) return "skipped_overlap";
+  try {
+    return await runTickUnguarded(env);
+  } finally {
+    // Released even when the tick throws: runTick absorbs its own errors, but
+    // an error from buildSources/configFromEnv would otherwise strand the
+    // lease for its full TTL.
+    await lock.releaseTickLease();
+  }
+}
+
+async function runTickUnguarded(env: Env): Promise<TickResult> {
   const config = configFromEnv(env);
   const { sources, snapshotSources } = buildSources(env, config);
   return runTick({
@@ -424,6 +452,31 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
 export class CanonicalHoursBoardObject extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+  }
+
+  /**
+   * Try to take the tick lease. Returns false when another tick holds it.
+   *
+   * A Durable Object is single-threaded per object id, so this check-and-set
+   * is atomic across every isolate — no new infrastructure needed for what is
+   * effectively a distributed lock. (bead:canonical-hours-25ff14.)
+   *
+   * The lease expires: an isolate evicted mid-tick can never release, and a
+   * permanently-held lock would turn an overlap bug into a total stall — the
+   * strictly worse failure. Expiry is evaluated on read rather than by alarm,
+   * so a dead holder cannot keep its own lease alive.
+   */
+  async acquireTickLease(ttlMs: number): Promise<boolean> {
+    const now = Date.now();
+    const until = await this.ctx.storage.get<number>("tick_lease_until");
+    if (leaseIsHeld(now, until)) return false;
+    await this.ctx.storage.put("tick_lease_until", now + ttlMs);
+    return true;
+  }
+
+  /** Release the tick lease. Safe to call when it has already expired. */
+  async releaseTickLease(): Promise<void> {
+    await this.ctx.storage.delete("tick_lease_until");
   }
 
   async fetch(req: Request): Promise<Response> {
