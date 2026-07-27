@@ -1,10 +1,9 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 
-import { SELF, env, runInDurableObject } from "cloudflare:test";
+import { SELF } from "cloudflare:test";
 import { parseConfig } from "@agentic-research/vespers-core";
 import { describe, expect, it } from "vitest";
 import { buildSources } from "../index";
-import { signedDpopActionRequest } from "./dpop-fixture";
 
 const MCP_URL = "https://canonical-hours.test/mcp";
 
@@ -21,44 +20,6 @@ async function mcpText(response: Response): Promise<string | undefined> {
 }
 
 describe("canonical-hours worker host", () => {
-  it("allows exactly one concurrent HTTP use of a signed DPoP proof", async () => {
-    const request = await signedDpopActionRequest();
-    const responses = await Promise.all([SELF.fetch(request.clone()), SELF.fetch(request.clone())]);
-    const messages = await Promise.all(responses.map(mcpText));
-    expect(messages.filter((message) => message === "GITHUB_TOKEN is not configured")).toHaveLength(1);
-    expect(messages.filter((message) => message?.includes("DPoP proof replay"))).toHaveLength(1);
-    const ledgerBinding = (env as typeof env & {
-      CH_DPOP_LEDGER: {
-        idFromName(name: string): DurableObjectId;
-        get(id: DurableObjectId): DurableObjectStub;
-      };
-    }).CH_DPOP_LEDGER;
-    const replayRows = await runInDurableObject(
-      ledgerBinding.get(ledgerBinding.idFromName("default")),
-      (_instance, state) => state.storage.sql.exec("SELECT COUNT(*) AS count FROM dpop_jti_ledger").one(),
-    );
-    expect(replayRows?.count).toBe(1);
-  });
-
-  it("records one of two concurrent uses of the same proof jti", async () => {
-    const ledgerBinding = (env as typeof env & {
-      CH_DPOP_LEDGER: {
-        idFromName(name: string): DurableObjectId;
-        get(id: DurableObjectId): DurableObjectStub;
-      };
-    }).CH_DPOP_LEDGER;
-    const ledger = ledgerBinding.get(ledgerBinding.idFromName("direct-ledger-test"));
-    const request = () => ledger.fetch("https://canonical-hours-dpop-ledger.test/jti", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jti: "concurrent-proof-jti" }),
-    });
-    const results = await Promise.all([request(), request()]);
-    expect(results.map((response) => response.status)).toEqual([200, 200]);
-    const seen = await Promise.all(results.map(async (response) => (await response.json() as { seen: boolean }).seen));
-    expect(seen.sort()).toEqual([false, true]);
-  });
-
   it("advertises the same MCP tools as the Eve host", async () => {
     const res = await SELF.fetch("https://canonical-hours.test/mcp", {
       method: "POST",

@@ -38,16 +38,27 @@ async function signedProof(token: string, now: number, keys: CryptoKeyPair, jwk:
   return `${input}.${base64url(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, keys.privateKey, new TextEncoder().encode(input)))}`;
 }
 
-export async function signedDpopActionRequest(): Promise<Request> {
+async function proofCredentials(): Promise<{ jkt: string; keys: CryptoKeyPair; jwk: JsonWebKey }> {
   const proofKeys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]) as CryptoKeyPair;
   const proofJwk = await crypto.subtle.exportKey("jwk", proofKeys.publicKey) as JsonWebKey;
-  const jkt = await sha256(JSON.stringify({ crv: proofJwk.crv, kty: proofJwk.kty, x: proofJwk.x, y: proofJwk.y }));
-  const now = Math.floor(Date.now() / 1000);
-  const token = await signedAccessToken(jkt, now);
-  const proof = await signedProof(token, now, proofKeys, proofJwk);
+  return {
+    jkt: await sha256(JSON.stringify({ crv: proofJwk.crv, kty: proofJwk.kty, x: proofJwk.x, y: proofJwk.y })),
+    keys: proofKeys,
+    jwk: proofJwk,
+  };
+}
+
+function actionRequest(token: string, proof: string): Request {
   return new Request(TARGET, {
     method: "POST",
     headers: { authorization: `DPoP ${token}`, dpop: proof, "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "resolve_addressed_review_threads", arguments: { pr: "agentic-research/canonical-hours#1" } } }),
   });
+}
+
+export async function signedDpopActionRequest(): Promise<Request> {
+  const credentials = await proofCredentials();
+  const now = Math.floor(Date.now() / 1000);
+  const token = await signedAccessToken(credentials.jkt, now);
+  return actionRequest(token, await signedProof(token, now, credentials.keys, credentials.jwk));
 }
