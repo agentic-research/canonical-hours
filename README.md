@@ -316,6 +316,8 @@ task observer:check # observer-core typecheck, tests, package import, and worker
 task typecheck    # tsc --noEmit
 task codegen      # regenerate agent/lib/sources/generated/*.ts after editing graphql/sources/*.graphql
 task check        # typecheck + package smoke + test — run before commit/push
+task publish:vespers  # full gate + npm publish for @agentic-research/vespers-core
+task publish:observer # full gate + npm publish for @agentic-research/observer-core
 task smells       # structural smell gate, ratcheted against docs/smell-baseline.json
 task install-hooks  # refresh just the local pre-commit hook wiring
 task --list       # see everything, including deps/watch/smells:baseline

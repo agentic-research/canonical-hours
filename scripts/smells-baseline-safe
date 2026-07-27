@@ -19,11 +19,6 @@
 set -e
 cd "$(git rev-parse --show-toplevel)"
 
-if ! command -v mache >/dev/null 2>&1; then
-  echo "smells-baseline-safe: mache CLI not found on PATH." >&2
-  exit 1
-fi
-
 SCRATCH="$(mktemp -d)"
 cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT INT TERM

@@ -5,6 +5,20 @@ import { parseConfig } from "@agentic-research/vespers-core";
 import { describe, expect, it } from "vitest";
 import { buildSources } from "../index";
 
+const MCP_URL = "https://canonical-hours.test/mcp";
+
+function mcpToolCall(name: string, args: Record<string, unknown> = {}): Request {
+  return new Request(MCP_URL, {
+    method: "POST",
+    body: JSON.stringify({ jsonrpc: "2.0", id: name, method: "tools/call", params: { name, arguments: args } }),
+  });
+}
+
+async function mcpText(response: Response): Promise<string | undefined> {
+  const body = await response.json() as { result?: { content?: Array<{ text?: string }> } };
+  return body.result?.content?.[0]?.text;
+}
+
 describe("canonical-hours worker host", () => {
   it("advertises the same MCP tools as the Eve host", async () => {
     const res = await SELF.fetch("https://canonical-hours.test/mcp", {
@@ -28,39 +42,19 @@ describe("canonical-hours worker host", () => {
     ]);
   });
 
-  it("default-denies mutating MCP tools when no action auth is configured", async () => {
+  it("denies mutating MCP tools without a DPoP proof", async () => {
     for (const name of ["resolve_addressed_review_threads", "dismiss_stale_bot_reviews"]) {
-      const res = await SELF.fetch("https://canonical-hours.test/mcp", {
-        method: "POST",
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: name,
-          method: "tools/call",
-          params: { name, arguments: { pr: "agentic-research/canonical-hours#1" } },
-        }),
-      });
+      const res = await SELF.fetch(mcpToolCall(name, { pr: "agentic-research/canonical-hours#1" }));
 
       expect(res.status).toBe(200);
-      const json = (await res.json()) as {
-        result?: { isError?: boolean; content?: Array<{ text?: string }> };
-      };
-      expect(json.result?.isError).toBe(true);
-      expect(json.result?.content?.[0]?.text).toContain("default-deny");
+      expect(await mcpText(res)).toContain("missing Authorization: DPoP");
     }
   });
 
   it("serves board routes and MCP tick locally in workerd", async () => {
     expect(await SELF.fetch("https://canonical-hours.test/board")).toMatchObject({ status: 404 });
 
-    const tick = await SELF.fetch("https://canonical-hours.test/mcp", {
-      method: "POST",
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: { name: "trigger_tick", arguments: {} },
-      }),
-    });
+    const tick = await SELF.fetch(mcpToolCall("trigger_tick"));
     expect(tick.status).toBe(200);
     const tickJson = (await tick.json()) as {
       result?: { structuredContent?: { result?: string } };

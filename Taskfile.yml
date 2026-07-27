@@ -1,5 +1,11 @@
 version: '3'
 
+vars:
+  # Single source for the local smell gate and the pinned CI composite Action.
+  MACHE_VERSION:
+    sh: tr -d '[:space:]' < .mache-version
+  MACHE_BIN: .tools/mache
+
 includes:
   vespers:
     taskfile: ./packages/vespers
@@ -159,17 +165,83 @@ tasks:
     cmds:
       - pnpm exec vitest run --config worker/vitest.config.mts
 
-  smells:
-    desc: "Structural smell gate — fail only on findings beyond docs/smell-baseline.json (see docs/smell-gate.md). --tags=gate matches mache's own ratchet convention (the composite GitHub Action hardcodes the same selection) and excludes the min-0 firehose rules (cyclomatic_complexity, magic_int_in_comparison) that fire noise on every file rather than genuine structural debt. Requires the mache CLI."
+  mache:ensure:
+    internal: true
+    desc: "Provision the exact Mache release used by the CI composite action."
+    preconditions:
+      - sh: command -v curl >/dev/null 2>&1
+        msg: "curl is required to provision the pinned Mache release."
     cmds:
-      - mache build . smells.db
-      - mache find-smells --db smells.db --rule '*' --tags=gate --limit 100000 --baseline-root "$PWD" --baseline docs/smell-baseline.json
+      - |
+        set -euo pipefail
+        expected="{{.MACHE_VERSION}}"
+        expected="${expected#v}"
+        if [ -x "{{.MACHE_BIN}}" ] && "{{.MACHE_BIN}}" --version | grep -Fq "mache version $expected"; then
+          exit 0
+        fi
+        case "$(uname -s)" in
+          Darwin) os=darwin ;;
+          Linux) os=linux ;;
+          *) echo "unsupported OS for Mache: $(uname -s)" >&2; exit 1 ;;
+        esac
+        case "$(uname -m)" in
+          arm64|aarch64) arch=arm64 ;;
+          x86_64|amd64) arch=amd64 ;;
+          *) echo "unsupported CPU for Mache: $(uname -m)" >&2; exit 1 ;;
+        esac
+        # sha256 is spelled differently across the two platforms this supports.
+        if command -v sha256sum >/dev/null 2>&1; then
+          sha256() { sha256sum "$1" | awk '{print $1}'; }
+        elif command -v shasum >/dev/null 2>&1; then
+          sha256() { shasum -a 256 "$1" | awk '{print $1}'; }
+        else
+          echo "need sha256sum or shasum to verify the Mache download" >&2; exit 1
+        fi
+
+        asset="mache-${os}-${arch}"
+        base="https://github.com/agentic-research/mache/releases/download/{{.MACHE_VERSION}}"
+
+        # Verify the download against the release's published checksums rather
+        # than trusting the transport alone. This repo SHA-pins its GitHub
+        # Actions; fetching an unpinned, unverified executable and running it
+        # over the whole source tree would be the weakest link in that chain.
+        # mache's release workflow publishes checksums-sha256.txt (sha256sum
+        # over every mache-* asset), so there is a real artifact to check.
+        expected_sum="$(curl -fsSL "${base}/checksums-sha256.txt" \
+          | awk -v f="${asset}" '{ sub(/^\*/, "", $2); if ($2 == f) print $1 }')"
+        if [ -z "${expected_sum}" ]; then
+          echo "no published sha256 for ${asset} in {{.MACHE_VERSION}}'s checksums-sha256.txt" >&2
+          exit 1
+        fi
+
+        mkdir -p .tools
+        curl -fsSL "${base}/${asset}" -o "{{.MACHE_BIN}}.tmp"
+        actual_sum="$(sha256 "{{.MACHE_BIN}}.tmp")"
+        if [ "${actual_sum}" != "${expected_sum}" ]; then
+          rm -f "{{.MACHE_BIN}}.tmp"
+          echo "Mache checksum mismatch for ${asset} @ {{.MACHE_VERSION}}" >&2
+          echo "  expected ${expected_sum}" >&2
+          echo "  actual   ${actual_sum}" >&2
+          exit 1
+        fi
+        chmod +x "{{.MACHE_BIN}}.tmp"
+        # Install only after verification, and atomically, so an interrupted or
+        # rejected download can never leave a runnable binary behind.
+        mv -f "{{.MACHE_BIN}}.tmp" "{{.MACHE_BIN}}"
+
+  smells:
+    desc: "Structural smell gate — fail only on findings beyond docs/smell-baseline.json, using the exact Mache release pinned for the CI composite action."
+    deps: [mache:ensure]
+    cmds:
+      - '{{.MACHE_BIN}} build . smells.db'
+      - '{{.MACHE_BIN}} find-smells --db smells.db --rule "*" --tags=gate --limit 100000 --baseline-root "$PWD" --baseline docs/smell-baseline.json'
 
   smells:baseline:
     desc: "Regenerate docs/smell-baseline.json from the current scan (same --tags=gate selection as `task smells`). Deliberate re-grandfathering only (e.g. after an accepted refactor) — day-to-day use `task smells`. In a tree with any OTHER concurrent, unrelated unstaged/untracked WIP present, prefer `task smells:baseline:safe` instead — this target scans the real working tree as-is, WIP included (canonical-hours-4ba370)."
+    deps: [mache:ensure]
     cmds:
-      - mache build . smells.db
-      - mache find-smells --db smells.db --rule '*' --tags=gate --limit 100000 --baseline-root "$PWD" --write-baseline docs/smell-baseline.json
+      - '{{.MACHE_BIN}} build . smells.db'
+      - '{{.MACHE_BIN}} find-smells --db smells.db --rule "*" --tags=gate --limit 100000 --baseline-root "$PWD" --write-baseline docs/smell-baseline.json'
 
   smells:baseline:safe:
     desc: "Like `smells:baseline`, but isolated from any concurrent unrelated WIP elsewhere in the working tree (canonical-hours-4ba370) — regenerates against the STAGED tree only, via the same git checkout-index isolation the pre-commit hook uses. Prefer this over `smells:baseline` whenever another process might have unstaged/untracked changes on disk."
@@ -186,6 +258,18 @@ tasks:
       - task typecheck:worker
       - task test
       - task test:worker
+
+  publish:vespers:
+    desc: "Run the full gate, then publish @agentic-research/vespers-core through its release task."
+    deps: [check]
+    cmds:
+      - task vespers:publish
+
+  publish:observer:
+    desc: "Run the full gate, then publish @agentic-research/observer-core through its release task."
+    deps: [check]
+    cmds:
+      - task observer:publish
 
   ci:
     desc: "The exact gate CI runs (.github/workflows/ci.yml): typecheck + package smoke + test. The smell gate runs as its own workflow (.github/workflows/smells.yml, via mache's composite action) rather than through this task — see docs/smell-gate.md."

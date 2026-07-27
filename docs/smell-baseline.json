@@ -403,8 +403,13 @@
     },
     {
       "rule_id": "fan_out_skew",
+      "source_id": "worker/test/dpop-replay.test.ts",
+      "count": 2
+    },
+    {
+      "rule_id": "fan_out_skew",
       "source_id": "worker/test/worker.test.ts",
-      "count": 4
+      "count": 3
     },
     {
       "rule_id": "god_file",

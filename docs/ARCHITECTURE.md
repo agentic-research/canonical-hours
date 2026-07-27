@@ -508,19 +508,21 @@ with nothing to revoke short of rotating the secret.
 `notmeDpopGate()` verifies a [notme](https://github.com/agentic-research/notme)-issued
 DPoP-bound access token (RFC 9449) via the public npmjs
 `@agentic-research/dpop` package. `verifyDPoPToken` itself now checks audience, issuer, and
-the access token's own `typ` header, and takes an optional replay
-(`seenJti`) hook — originally these were missing entirely (a real
+the access token's own `typ` header, and takes an optional atomic replay
+(`checkAndRecordJti`) hook — originally these were missing entirely (a real
 confused-deputy gap, found auditing this repo's own usage of the SDK)
 and `notmeDpopGate` patched them locally; that fix moved upstream into
 notme's SDK instead (notme-dffc5c), so cloister — an independent
 consumer that had separately hand-rolled the same checks — could
 delete its own copy too, rather than three repos maintaining parallel
-versions of the same hardening logic. `notmeDpopGate`'s own replay hook
-now defaults to an in-memory jti tracker (`seenJtiTracker` in
-`action-gate.ts`) — closes what used to be a documented gap for each
-running host instance. A future deployed Worker should promote that hook
-to a Durable Object or KV-backed single-use ledger if it needs replay
-state to survive isolate/process restarts. DPoP, not notme's
+versions of the same hardening logic. The Node/Eve host retains an
+in-memory fallback for local development, but the deployed Worker injects
+`checkAndRecordJti` from a SQLite-backed `DpopReplayLedgerObject`. The
+ledger serializes concurrent requests and prunes entries after the SDK's
+60-second proof-freshness window, so an isolate restart or region change
+cannot reopen the replay window. If the Worker binding is missing, the DPoP
+path fails closed rather than silently falling back to process-local state.
+DPoP, not notme's
 mTLS bridge-cert path: investigated and ruled out was mTLS client-cert
 verification, which needs either eve exposing raw TLS-server config
 (checked — it doesn't, zero hits for `requestCert`/`mTLS`/`TLS` across

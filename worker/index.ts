@@ -22,6 +22,7 @@ import { resolveAddressedThreads } from "../agent/lib/thread-resolution";
 
 interface Env {
   CH_BOARD: DurableObjectNamespace<CanonicalHoursBoardObject>;
+  CH_DPOP_LEDGER: DurableObjectNamespace<DpopReplayLedgerObject>;
   CANONICAL_HOURS_CONFIG_JSON?: string;
   GITHUB_TOKEN?: string;
   GITHUB_MIN_REMAINING?: string;
@@ -107,7 +108,7 @@ interface WorkerSourceDeps {
 }
 
 export function buildSources(
-  env: Omit<Env, "CH_BOARD">,
+  env: Omit<Env, "CH_BOARD" | "CH_DPOP_LEDGER">,
   config: Config,
   deps: WorkerSourceDeps = {},
 ): { sources: Source[]; snapshotSources: SnapshotSource[] } {
@@ -227,6 +228,30 @@ function gateUrl(url: URL): string {
   return `${url.origin}${url.pathname}`;
 }
 
+async function replayKey(jti: string): Promise<string> {
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(jti)),
+  );
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function checkAndRecordDpopJti(env: Env, jti: string): Promise<boolean> {
+  const stub = env.CH_DPOP_LEDGER.get(env.CH_DPOP_LEDGER.idFromName("default"));
+  const response = await stub.fetch("https://canonical-hours-dpop-ledger.local/jti", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jti }),
+  });
+  if (!response.ok) throw new Error(`durable DPoP replay ledger failed: ${response.status}`);
+  const result = (await response.json()) as { seen?: unknown };
+  if (typeof result.seen !== "boolean") throw new Error("durable DPoP replay ledger returned an invalid response");
+  return result.seen;
+}
+
+function actionGate(env: Env) {
+  return actionGateFromEnv(env, { checkAndRecordJti: (jti) => checkAndRecordDpopJti(env, jti) });
+}
+
 function mcpToolText(id: string | number | null | undefined, textValue: string, structuredContent?: unknown): Response {
   return json({
     jsonrpc: "2.0",
@@ -260,7 +285,7 @@ async function handleResolveAddressedReviewThreads(
   id: string | number | null | undefined,
   args: Record<string, unknown> | undefined,
 ): Promise<Response> {
-  const verdict = await actionGateFromEnv(env)({
+  const verdict = await actionGate(env)({
     toolName: "resolve_addressed_review_threads",
     headers: headersFromRequest(req.headers),
     url: gateUrl(new URL(req.url)),
@@ -289,7 +314,7 @@ async function handleDismissStaleBotReviews(
   id: string | number | null | undefined,
   args: Record<string, unknown> | undefined,
 ): Promise<Response> {
-  const verdict = await actionGateFromEnv(env)({
+  const verdict = await actionGate(env)({
     toolName: "dismiss_stale_bot_reviews",
     headers: headersFromRequest(req.headers),
     url: gateUrl(new URL(req.url)),
@@ -467,6 +492,45 @@ export class CanonicalHoursBoardObject extends DurableObject<Env> {
       return json({ ok: true });
     }
     return new Response(null, { status: 405 });
+  }
+}
+
+/** Durable, serialized DPoP proof-jti ledger for the Worker host. */
+export class DpopReplayLedgerObject extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS dpop_jti_ledger (
+        jti TEXT PRIMARY KEY,
+        seen_at INTEGER NOT NULL
+      )
+    `);
+  }
+
+  async fetch(req: Request): Promise<Response> {
+    if (new URL(req.url).pathname !== "/jti" || req.method !== "POST") {
+      return new Response(null, { status: 405 });
+    }
+    const body = (await req.json()) as { jti?: unknown };
+    if (typeof body.jti !== "string" || body.jti.length === 0) {
+      return json({ error: "jti must be a non-empty string" }, { status: 400 });
+    }
+    const now = Date.now();
+    // A proof jti is not a credential, but retaining only a one-way digest
+    // avoids preserving a caller-provided identifier in durable storage.
+    const key = await replayKey(body.jti);
+    this.ctx.storage.sql.exec("DELETE FROM dpop_jti_ledger WHERE seen_at < ?", now - 120_000);
+    const existing = this.ctx.storage.sql.exec(
+      "SELECT jti FROM dpop_jti_ledger WHERE jti = ? LIMIT 1",
+      key,
+    ).toArray();
+    if (existing.length > 0) return json({ seen: true });
+    this.ctx.storage.sql.exec(
+      "INSERT INTO dpop_jti_ledger (jti, seen_at) VALUES (?, ?)",
+      key,
+      now,
+    );
+    return json({ seen: false });
   }
 }
 

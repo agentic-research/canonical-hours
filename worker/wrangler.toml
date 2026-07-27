@@ -6,6 +6,14 @@ compatibility_date = "2026-03-01"
 name = "CH_BOARD"
 class_name = "CanonicalHoursBoardObject"
 
+[[durable_objects.bindings]]
+name = "CH_DPOP_LEDGER"
+class_name = "DpopReplayLedgerObject"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["CanonicalHoursBoardObject"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["DpopReplayLedgerObject"]
